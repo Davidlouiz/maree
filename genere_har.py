@@ -145,7 +145,9 @@ def write_har(
         f.write(f"# Généré le {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
         f.write(f"# Format: .har (harmoniques marée)\n")
         f.write(f"#\n")
-        f.write(f"# Phases référencées à Greenwich (UTC), convention Doodson/Schureman\n")
+        f.write(
+            f"# Phases référencées à Greenwich (UTC), convention Doodson/Schureman\n"
+        )
         f.write(f"# Amplitude en mètres, phase en degrés\n")
         f.write(f"\n")
         f.write(f"[port]\n")
@@ -166,15 +168,28 @@ def main():
     )
     parser.add_argument("--nom", required=True, help="Nom du port")
     parser.add_argument("--lat", type=float, required=True, help="Latitude (degrés)")
-    parser.add_argument("--lon", type=float, required=True, help="Longitude (degrés, ouest = négatif)")
-    parser.add_argument("--z0", type=float, required=True,
-                        help="Niveau moyen au-dessus du zéro des cartes (m)")
-    parser.add_argument("--atlas-dir", default=None,
-                        help="Répertoire atlas spécifique (ex: .../V1_MANE)")
-    parser.add_argument("--atlas-base", default="MARC_L1-ATLAS-AHRMONIQUES",
-                        help="Répertoire parent des atlas (défaut: MARC_L1-ATLAS-AHRMONIQUES)")
-    parser.add_argument("--output", "-o", default=None,
-                        help="Fichier de sortie (défaut: <nom>.har)")
+    parser.add_argument(
+        "--lon", type=float, required=True, help="Longitude (degrés, ouest = négatif)"
+    )
+    parser.add_argument(
+        "--z0",
+        type=float,
+        required=True,
+        help="Niveau moyen au-dessus du zéro des cartes (m)",
+    )
+    parser.add_argument(
+        "--atlas-dir",
+        default=None,
+        help="Répertoire atlas spécifique (ex: .../V1_MANE)",
+    )
+    parser.add_argument(
+        "--atlas-base",
+        default="MARC_L1-ATLAS-AHRMONIQUES",
+        help="Répertoire parent des atlas (défaut: MARC_L1-ATLAS-AHRMONIQUES)",
+    )
+    parser.add_argument(
+        "--output", "-o", default=None, help="Fichier de sortie (défaut: <nom>.har)"
+    )
     args = parser.parse_args()
 
     # Déterminer le répertoire atlas
