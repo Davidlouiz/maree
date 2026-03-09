@@ -585,13 +585,26 @@ class Maree:
         section = None
 
         with open(fpath, "r", encoding="utf-8") as f:
+            pending_section = None
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                if line.startswith("[") and line.endswith("]"):
-                    section = line[1:-1].lower()
+                # Handle section headers, possibly split across lines:
+                # [port]  or  [port\n]
+                if line.startswith("["):
+                    if line.endswith("]"):
+                        section = line[1:-1].lower()
+                    else:
+                        pending_section = line[1:]
                     continue
+                if pending_section is not None:
+                    if line == "]":
+                        section = pending_section.lower()
+                        pending_section = None
+                        continue
+                    else:
+                        pending_section = None
                 if section == "port":
                     if "=" in line:
                         key, val = line.split("=", 1)
