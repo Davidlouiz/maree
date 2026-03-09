@@ -550,6 +550,74 @@ class Maree:
             lat=lat if lat is not None else 48.0,
         )
 
+    @classmethod
+    def from_har(cls, filepath: str) -> "Maree":
+        """
+        Charge les constantes harmoniques depuis un fichier ``.har``.
+
+        Format INI simplifie avec deux sections :
+
+        .. code-block:: ini
+
+            [port]
+            nom       = Port-en-Bessin
+            latitude  = 49.35
+            longitude = -0.75
+            z0        = 4.3157
+
+            [constituants]
+            # nom    amplitude(m)   phase(°)
+            M2       2.324588       272.4855
+
+        Les phases sont referencees a Greenwich (UTC), convention
+        Doodson/Schureman.
+
+        Parameters
+        ----------
+        filepath : str
+            Chemin vers le fichier ``.har``.
+        """
+        fpath = Path(filepath)
+        constituents = {}
+        z0 = 0.0
+        name = fpath.stem
+        lat = 48.0
+        section = None
+
+        with open(fpath, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("[") and line.endswith("]"):
+                    section = line[1:-1].lower()
+                    continue
+                if section == "port":
+                    if "=" in line:
+                        key, val = line.split("=", 1)
+                        key = key.strip().lower()
+                        val = val.strip()
+                        if key == "nom":
+                            name = val
+                        elif key == "latitude":
+                            lat = float(val)
+                        elif key == "longitude":
+                            pass  # informational
+                        elif key == "z0":
+                            z0 = float(val)
+                elif section == "constituants":
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        try:
+                            constituents[parts[0]] = (
+                                float(parts[1]),
+                                float(parts[2]),
+                            )
+                        except ValueError:
+                            continue
+
+        return cls(z0=z0, constituents=constituents, name=name, lat=lat)
+
     @staticmethod
     def _correct_phases_tz(constituents: dict, tz_offset_h: float) -> dict:
         """
