@@ -60,97 +60,153 @@ _UTIDE_NAMES = list(_CONST.name)
 # ─────────────────────────────────────────────────────────────────────────────
 _SHOM_TO_UTIDE = {
     # —— Diurnaux ——
-    "SIGMA1": "SIG1", "Sig1": "SIG1",
-    "RHO1": "RHO1", "Ro1": "RHO1",
-    "THETA1": "THE1", "Tta1": "THE1",
-    "CHI1": "CHI1", "Ki1": "CHI1",
-    "PI1": "PI1", "Pi1": "PI1",
-    "PHI1": "PHI1", "Phi1": "PHI1",
-    "PSI1": "PSI1", "Psi1": "PSI1",
+    "SIGMA1": "SIG1",
+    "Sig1": "SIG1",
+    "RHO1": "RHO1",
+    "Ro1": "RHO1",
+    "THETA1": "THE1",
+    "Tta1": "THE1",
+    "CHI1": "CHI1",
+    "Ki1": "CHI1",
+    "PI1": "PI1",
+    "Pi1": "PI1",
+    "PHI1": "PHI1",
+    "Phi1": "PHI1",
+    "PSI1": "PSI1",
+    "Psi1": "PSI1",
     # —— Semi-diurnaux ——
     "GAMMA2": "GAM2",
-    "LAMBDA2": "LDA2", "La2": "LDA2",
+    "LAMBDA2": "LDA2",
+    "La2": "LDA2",
     "KJ2": "ETA2",  # η₂
-    "E2": "EPS2",   # ε₂
-    "Mu2": "MU2", "Nu2": "NU2",
+    "E2": "EPS2",  # ε₂
+    "Mu2": "MU2",
+    "Nu2": "NU2",
     # —— Identiques (noms SHOM == utide) ——
-    "Z0": "Z0", "SA": "SA", "SSA": "SSA", "MSM": "MSM",
-    "MM": "MM", "Mm": "MM",
-    "MSF": "MSF", "MF": "MF", "Mf": "MF",
-    "2Q1": "2Q1", "Q1": "Q1", "O1": "O1",
-    "P1": "P1", "S1": "S1", "K1": "K1",
-    "J1": "J1", "OO1": "OO1",
-    "M1": None, "MP1": None, "MS1": None, "KQ1": None,
-    "2N2": "2N2", "MU2": "MU2", "N2": "N2", "NU2": "NU2",
-    "M2": "M2", "L2": "L2", "T2": "T2", "S2": "S2",
-    "R2": "R2", "K2": "K2",
-    "2NS2": "2NS2", "OQ2": "OQ2", "OP2": "OP2",
-    "MKS2": "MKS2", "MSN2": "MSN2", "2SM2": "2SM2", "SKM2": "SKM2",
+    "Z0": "Z0",
+    "SA": "SA",
+    "SSA": "SSA",
+    "MSM": "MSM",
+    "MM": "MM",
+    "Mm": "MM",
+    "MSF": "MSF",
+    "MF": "MF",
+    "Mf": "MF",
+    "2Q1": "2Q1",
+    "Q1": "Q1",
+    "O1": "O1",
+    "P1": "P1",
+    "S1": "S1",
+    "K1": "K1",
+    "J1": "J1",
+    "OO1": "OO1",
+    "M1": None,
+    "MP1": None,
+    "MS1": None,
+    "KQ1": None,
+    "2N2": "2N2",
+    "MU2": "MU2",
+    "N2": "N2",
+    "NU2": "NU2",
+    "M2": "M2",
+    "L2": "L2",
+    "T2": "T2",
+    "S2": "S2",
+    "R2": "R2",
+    "K2": "K2",
+    "2NS2": "2NS2",
+    "OQ2": "OQ2",
+    "OP2": "OP2",
+    "MKS2": "MKS2",
+    "MSN2": "MSN2",
+    "2SM2": "2SM2",
+    "SKM2": "SKM2",
     # —— Composés / shallow water ——
-    "M3": "M3", "MK3": "MK3", "SO3": "SO3", "SP3": "SP3", "SK3": "SK3",
-    "N4": "N4", "3MS4": "3MS4", "MN4": "MN4", "M4": "M4",
-    "MK4": "MK4", "SN4": "SN4", "MS4": "MS4", "S4": "S4", "SK4": "SK4",
-    "2NM6": "2NM6", "2MN6": "2MN6", "M6": "M6", "MSN6": "MSN6",
-    "MKN6": "MKN6", "2MS6": "2MS6", "2MK6": "2MK6",
-    "2SM6": "2SM6", "MSK6": "MSK6",
-    "3MN8": "3MN8", "M8": "M8", "3MS8": "3MS8", "3MK8": "3MK8",
+    "M3": "M3",
+    "MK3": "MK3",
+    "SO3": "SO3",
+    "SP3": "SP3",
+    "SK3": "SK3",
+    "N4": "N4",
+    "3MS4": "3MS4",
+    "MN4": "MN4",
+    "M4": "M4",
+    "MK4": "MK4",
+    "SN4": "SN4",
+    "MS4": "MS4",
+    "S4": "S4",
+    "SK4": "SK4",
+    "2NM6": "2NM6",
+    "2MN6": "2MN6",
+    "M6": "M6",
+    "MSN6": "MSN6",
+    "MKN6": "MKN6",
+    "2MS6": "2MS6",
+    "2MK6": "2MK6",
+    "2SM6": "2SM6",
+    "MSK6": "MSK6",
+    "3MN8": "3MN8",
+    "M8": "M8",
+    "3MS8": "3MS8",
+    "3MK8": "3MK8",
 }
 
 # Constituants non répertoriés par utide → vitesse angulaire + décomposition
 # permettant de recalculer f et u à partir des constituants parents.
 _EXTRA_CONSTITUENTS = {
     # Semi-diurnaux composés
-    "M(SK)2":   (29.0662416, [("M2", 1), ("S2", 1), ("K2", -1)]),
-    "M(KS)2":   (28.9019669, [("M2", 1), ("K2", 1), ("S2", -1)]),
-    "NKM2":     (28.9019669, [("N2", 1), ("K2", 1), ("M2", -1)]),
-    "MNS2":     (27.4238337, [("M2", 1), ("N2", 1), ("S2", -1)]),
-    "MNUS2":    (27.4966873, [("M2", 1), ("NU2", 1), ("S2", -1)]),
-    "2MK2":     (27.8860711, [("M2", 2), ("K2", -1)]),
-    "2MN2S2":   (26.4079380, [("M2", 2), ("N2", 1), ("S2", -2)]),
-    "3M2S2":    (26.8712065, [("M2", 3), ("S2", -2)]),
+    "M(SK)2": (29.0662416, [("M2", 1), ("S2", 1), ("K2", -1)]),
+    "M(KS)2": (28.9019669, [("M2", 1), ("K2", 1), ("S2", -1)]),
+    "NKM2": (28.9019669, [("N2", 1), ("K2", 1), ("M2", -1)]),
+    "MNS2": (27.4238337, [("M2", 1), ("N2", 1), ("S2", -1)]),
+    "MNUS2": (27.4966873, [("M2", 1), ("NU2", 1), ("S2", -1)]),
+    "2MK2": (27.8860711, [("M2", 2), ("K2", -1)]),
+    "2MN2S2": (26.4079380, [("M2", 2), ("N2", 1), ("S2", -2)]),
+    "3M2S2": (26.8712065, [("M2", 3), ("S2", -2)]),
     # Diurnaux composés
-    "MS1":      (14.4966878, [("M2", 1), ("S2", -1), ("K1", 1)]),
-    "MP1":      (14.0251728, [("M2", 1), ("P1", -1)]),
-    "KQ1":      (13.4715145, [("K1", 1), ("Q1", 1), ("O1", -1)]),
-    "M1":       (14.4920521, [("M2", 0.5)]),
+    "MS1": (14.4966878, [("M2", 1), ("S2", -1), ("K1", 1)]),
+    "MP1": (14.0251728, [("M2", 1), ("P1", -1)]),
+    "KQ1": (13.4715145, [("K1", 1), ("Q1", 1), ("O1", -1)]),
+    "M1": (14.4920521, [("M2", 0.5)]),
     # Terdiurnaux
-    "2MK3":     (42.9271398, [("M2", 2), ("K1", -1)]),
-    "S3":       (45.0,       []),
+    "2MK3": (42.9271398, [("M2", 2), ("K1", -1)]),
+    "S3": (45.0, []),
     # Quart-diurnaux composés
-    "2MMUS4":   (55.9364170, [("M2", 2), ("MU2", 1), ("S2", -1)]),
-    "2MNS4":    (56.4079380, [("M2", 2), ("N2", 1), ("S2", -1)]),
-    "MNU4":     (57.4966873, [("M2", 1), ("NU2", 1)]),
-    "2MSK4":    (57.8860711, [("M2", 2), ("S2", 1), ("K2", -1)]),
-    "2MKS4":    (57.8860711, [("M2", 2), ("K2", 1), ("S2", -1)]),
-    "3MN4":     (57.4238337, [("M2", 3), ("N2", -1)]),
-    "NK4":      (58.5218669, [("N2", 1), ("K2", 1)]),
-    "MT4":      (57.4966873, [("M2", 1), ("T2", 1)]),
-    "2SNM4":    (59.5284789, [("S2", 2), ("N2", 1), ("M2", -1)]),
-    "2MSN4":    (58.5125831, [("M2", 2), ("S2", 1), ("N2", -1)]),
+    "2MMUS4": (55.9364170, [("M2", 2), ("MU2", 1), ("S2", -1)]),
+    "2MNS4": (56.4079380, [("M2", 2), ("N2", 1), ("S2", -1)]),
+    "MNU4": (57.4966873, [("M2", 1), ("NU2", 1)]),
+    "2MSK4": (57.8860711, [("M2", 2), ("S2", 1), ("K2", -1)]),
+    "2MKS4": (57.8860711, [("M2", 2), ("K2", 1), ("S2", -1)]),
+    "3MN4": (57.4238337, [("M2", 3), ("N2", -1)]),
+    "NK4": (58.5218669, [("N2", 1), ("K2", 1)]),
+    "MT4": (57.4966873, [("M2", 1), ("T2", 1)]),
+    "2SNM4": (59.5284789, [("S2", 2), ("N2", 1), ("M2", -1)]),
+    "2MSN4": (58.5125831, [("M2", 2), ("S2", 1), ("N2", -1)]),
     # Sixième-diurnaux composés
-    "3MNK6":    (86.3257952, [("M2", 3), ("N2", 1), ("K2", -1)]),
-    "3MNS6":    (85.3920423, [("M2", 3), ("N2", 1), ("S2", -1)]),
-    "3MNUS6":   (85.4648959, [("M2", 3), ("NU2", 1), ("S2", -1)]),
-    "4MK6":     (85.8542797, [("M2", 4), ("K2", -1)]),
-    "4MS6":     (85.9364170, [("M2", 4), ("S2", -1)]),
-    "2MNU6":    (86.4808916, [("M2", 2), ("NU2", 1)]),
-    "3MSK6":    (86.8702754, [("M2", 3), ("S2", 1), ("K2", -1)]),
-    "3MKS6":    (86.8702754, [("M2", 3), ("K2", 1), ("S2", -1)]),
-    "4MN6":     (87.4238338, [("M2", 4), ("N2", -1)]),
-    "MNK6":     (87.5059711, [("M2", 1), ("N2", 1), ("K2", 1)]),
-    "2SN6":     (88.4397296, [("S2", 2), ("N2", 1)]),
-    "3MSN6":    (87.4966873, [("M2", 3), ("S2", 1), ("N2", -1)]),
-    "3MKN6":    (87.5059711, [("M2", 3), ("K2", 1), ("N2", -1)]),
+    "3MNK6": (86.3257952, [("M2", 3), ("N2", 1), ("K2", -1)]),
+    "3MNS6": (85.3920423, [("M2", 3), ("N2", 1), ("S2", -1)]),
+    "3MNUS6": (85.4648959, [("M2", 3), ("NU2", 1), ("S2", -1)]),
+    "4MK6": (85.8542797, [("M2", 4), ("K2", -1)]),
+    "4MS6": (85.9364170, [("M2", 4), ("S2", -1)]),
+    "2MNU6": (86.4808916, [("M2", 2), ("NU2", 1)]),
+    "3MSK6": (86.8702754, [("M2", 3), ("S2", 1), ("K2", -1)]),
+    "3MKS6": (86.8702754, [("M2", 3), ("K2", 1), ("S2", -1)]),
+    "4MN6": (87.4238338, [("M2", 4), ("N2", -1)]),
+    "MNK6": (87.5059711, [("M2", 1), ("N2", 1), ("K2", 1)]),
+    "2SN6": (88.4397296, [("S2", 2), ("N2", 1)]),
+    "3MSN6": (87.4966873, [("M2", 3), ("S2", 1), ("N2", -1)]),
+    "3MKN6": (87.5059711, [("M2", 3), ("K2", 1), ("N2", -1)]),
     # Huitième-diurnaux composés
-    "3MNU8":    (115.4648959, [("M2", 3), ("NU2", 1)]),
-    "2MSN8":    (116.4966873, [("M2", 2), ("S2", 1), ("N2", 1)]),
-    "2(MS)8":   (117.9682085, [("M2", 2), ("S2", 2)]),
+    "3MNU8": (115.4648959, [("M2", 3), ("NU2", 1)]),
+    "2MSN8": (116.4966873, [("M2", 2), ("S2", 1), ("N2", 1)]),
+    "2(MS)8": (117.9682085, [("M2", 2), ("S2", 2)]),
 }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Utilitaires
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _datetime_to_ordinal(dt: datetime) -> float:
     """
@@ -163,11 +219,13 @@ def _datetime_to_ordinal(dt: datetime) -> float:
     """
     if dt.tzinfo is not None:
         dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
-    return (dt.toordinal()
-            + dt.hour / 24.0
-            + dt.minute / 1440.0
-            + dt.second / 86400.0
-            + dt.microsecond / 86400e6)
+    return (
+        dt.toordinal()
+        + dt.hour / 24.0
+        + dt.minute / 1440.0
+        + dt.second / 86400.0
+        + dt.microsecond / 86400e6
+    )
 
 
 def _datetime_to_jd(dt: datetime) -> float:
@@ -186,6 +244,7 @@ def _datetime_to_jd(dt: datetime) -> float:
 # Classe principale
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class Maree:
     """
     Prediction de maree par methode harmonique.
@@ -202,8 +261,9 @@ class Maree:
         Latitude (pour le calcul des corrections nodales).
     """
 
-    def __init__(self, z0: float, constituents: dict,
-                 name: str = "", lat: float = 48.0):
+    def __init__(
+        self, z0: float, constituents: dict, name: str = "", lat: float = 48.0
+    ):
         self.z0 = z0
         self.constituents = constituents
         self.name = name
@@ -252,8 +312,12 @@ class Maree:
         self._utide_amp = np.array(self._utide_amp)
         self._utide_phase = np.array(self._utide_phase)
         self._extra_amp = np.array(self._extra_amp) if self._extra_amp else np.array([])
-        self._extra_phase = np.array(self._extra_phase) if self._extra_phase else np.array([])
-        self._extra_speed = np.array(self._extra_speed) if self._extra_speed else np.array([])
+        self._extra_phase = (
+            np.array(self._extra_phase) if self._extra_phase else np.array([])
+        )
+        self._extra_speed = (
+            np.array(self._extra_speed) if self._extra_speed else np.array([])
+        )
 
         if self._skipped:
             total = sum(a for _, a in self._skipped)
@@ -265,7 +329,9 @@ class Maree:
 
     # ── Prediction ──────────────────────────────────────────────────────
 
-    def hauteur(self, dt: Union[datetime, list[datetime], np.ndarray]) -> Union[float, np.ndarray]:
+    def hauteur(
+        self, dt: Union[datetime, list[datetime], np.ndarray]
+    ) -> Union[float, np.ndarray]:
         """
         Predit la hauteur d'eau en metres au-dessus du zero des cartes.
 
@@ -302,10 +368,11 @@ class Maree:
 
         # ── Constituants utide ──
         if len(self._utide_indices) > 0:
-            F, U, V = FUV(t_ord, t_ord, self._utide_indices,
-                          self.lat, ngflgs=[0, 0, 0, 0])
+            F, U, V = FUV(
+                t_ord, t_ord, self._utide_indices, self.lat, ngflgs=[0, 0, 0, 0]
+            )
             F = F.flatten()
-            U = U.flatten() * 360.0   # cycles -> degres
+            U = U.flatten() * 360.0  # cycles -> degres
             V = V.flatten() * 360.0
             phase_rad = np.deg2rad(V + U - self._utide_phase)
             h += np.sum(F * self._utide_amp * np.cos(phase_rad))
@@ -328,8 +395,7 @@ class Maree:
         if parent_set:
             parent_list = sorted(parent_set)
             parent_idx = np.array([_UTIDE_NAMES.index(n) for n in parent_list])
-            F_p, U_p, V_p = FUV(t_ord, t_ord, parent_idx,
-                                self.lat, ngflgs=[0, 0, 0, 0])
+            F_p, U_p, V_p = FUV(t_ord, t_ord, parent_idx, self.lat, ngflgs=[0, 0, 0, 0])
             F_p = F_p.flatten()
             U_p = U_p.flatten() * 360.0
             V_p = V_p.flatten() * 360.0
@@ -388,8 +454,7 @@ class Maree:
         tz = timezone(timedelta(hours=tz_offset_h))
         start = datetime(date.year, date.month, date.day, 0, 0, tzinfo=tz)
         n_steps = 24 * 60 // pas_minutes + 1
-        times = [start + timedelta(minutes=i * pas_minutes)
-                 for i in range(n_steps)]
+        times = [start + timedelta(minutes=i * pas_minutes) for i in range(n_steps)]
         heights = np.asarray(self.hauteur(times))
 
         extremes = []
@@ -478,8 +543,12 @@ class Maree:
         if tz_offset_h != 0.0:
             constituents = cls._correct_phases_tz(constituents, tz_offset_h)
 
-        return cls(z0=z0, constituents=constituents, name=name,
-                   lat=lat if lat is not None else 48.0)
+        return cls(
+            z0=z0,
+            constituents=constituents,
+            name=name,
+            lat=lat if lat is not None else 48.0,
+        )
 
     @staticmethod
     def _correct_phases_tz(constituents: dict, tz_offset_h: float) -> dict:
@@ -512,8 +581,9 @@ class Maree:
         return corrected
 
     @classmethod
-    def from_atlas(cls, atlas_dir: str, lat: float, lon: float,
-                   z0: float = 0.0) -> "Maree":
+    def from_atlas(
+        cls, atlas_dir: str, lat: float, lon: float, z0: float = 0.0
+    ) -> "Maree":
         """
         Charge les constantes depuis les atlas NetCDF SHOM/MARC.
 
@@ -533,12 +603,10 @@ class Maree:
         adir = Path(atlas_dir)
         xe_files = sorted(adir.glob("*-XE-*-atlas.nc"))
         if not xe_files:
-            raise FileNotFoundError(
-                f"Aucun fichier *-XE-* dans {adir}")
+            raise FileNotFoundError(f"Aucun fichier *-XE-* dans {adir}")
 
         # Trouver le fichier M2 pour le masque terre/mer
-        m2_file = next((f for f in xe_files if f.name.startswith("M2-")),
-                       xe_files[0])
+        m2_file = next((f for f in xe_files if f.name.startswith("M2-")), xe_files[0])
 
         ds0 = netCDF4.Dataset(str(m2_file))
         grid_lat = ds0.variables["latitude"][:]
@@ -552,8 +620,7 @@ class Maree:
         idx = np.unravel_index(np.argmin(valid_dist), valid_dist.shape)
 
         if valid_dist[idx] > 1e9:
-            raise ValueError(
-                f"Aucun point oceanique pres de ({lat:.3f}, {lon:.3f})")
+            raise ValueError(f"Aucun point oceanique pres de ({lat:.3f}, {lon:.3f})")
 
         actual_lat = float(grid_lat[idx])
         actual_lon = float(grid_lon[idx])
@@ -563,7 +630,8 @@ class Maree:
             warnings.warn(
                 f"Point oceanique le plus proche a {dist_deg:.3f} deg "
                 f"de ({lat:.3f}, {lon:.3f}) -> "
-                f"({actual_lat:.3f}, {actual_lon:.3f})")
+                f"({actual_lat:.3f}, {actual_lon:.3f})"
+            )
 
         constituents = {}
         for f in xe_files:
@@ -590,8 +658,9 @@ class Maree:
         return cls(z0=z0, constituents=constituents, name=desc, lat=lat)
 
     @classmethod
-    def from_atlas_auto(cls, atlas_base_dir: str, lat: float, lon: float,
-                        z0: float = 0.0) -> "Maree":
+    def from_atlas_auto(
+        cls, atlas_base_dir: str, lat: float, lon: float, z0: float = 0.0
+    ) -> "Maree":
         """
         Selectionne automatiquement le meilleur atlas (resolution la plus
         fine) couvrant la position demandee.
@@ -609,8 +678,7 @@ class Maree:
 
         base = Path(atlas_base_dir)
         # V1 (haute resolution) avant V0 (basse resolution)
-        atlas_dirs = sorted(
-            [d for d in base.iterdir() if d.is_dir()], reverse=True)
+        atlas_dirs = sorted([d for d in base.iterdir() if d.is_dir()], reverse=True)
 
         best = None
         best_dist = 1e10
@@ -621,8 +689,8 @@ class Maree:
                 continue
 
             m2_file = next(
-                (f for f in xe_files if f.name.startswith("M2-")),
-                xe_files[0])
+                (f for f in xe_files if f.name.startswith("M2-")), xe_files[0]
+            )
 
             ds = netCDF4.Dataset(str(m2_file))
             glat = ds.variables["latitude"][:]
@@ -641,8 +709,7 @@ class Maree:
                 best = ad
 
         if best is None:
-            raise ValueError(
-                f"Aucun atlas ne couvre ({lat:.3f}, {lon:.3f})")
+            raise ValueError(f"Aucun atlas ne couvre ({lat:.3f}, {lon:.3f})")
 
         return cls.from_atlas(str(best), lat, lon, z0=z0)
 
@@ -650,6 +717,7 @@ class Maree:
 # ─────────────────────────────────────────────────────────────────────────────
 # Fonction utilitaire de haut niveau
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def hauteur_eau(
     latitude: float,
@@ -701,8 +769,7 @@ def hauteur_eau(
     elif atlas_base_dir is not None:
         if z0 is None:
             raise ValueError("z0 requis avec atlas_base_dir")
-        m = Maree.from_atlas_auto(
-            atlas_base_dir, lat=latitude, lon=longitude, z0=z0)
+        m = Maree.from_atlas_auto(atlas_base_dir, lat=latitude, lon=longitude, z0=z0)
     else:
         raise ValueError("Fournir td4_file, atlas_dir ou atlas_base_dir")
 
@@ -738,14 +805,17 @@ if __name__ == "__main__":
         (datetime(2026, 3, 9, 20, 56, tzinfo=tz_paris), 3.56, "PM"),
     ]
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  Validation — Arcachon 9 mars 2026 (ref: maree.info)")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"  {'Type':>4s}  {'Heure':>6s}  {'Predit':>8s}  {'Ref':>8s}  {'Ecart':>8s}")
     for dt, ref, kind in refs:
         p = m.hauteur(dt)
-        print(f"  {kind:>4s}  {dt.strftime('%Hh%M'):>6s}  {p:7.2f} m  {ref:7.2f} m  {p - ref:+7.2f} m")
+        print(
+            f"  {kind:>4s}  {dt.strftime('%Hh%M'):>6s}  {p:7.2f} m  {ref:7.2f} m  {p - ref:+7.2f} m"
+        )
 
     print()
     from datetime import date
+
     m.maree_jour(date(2026, 3, 9), tz_offset_h=1)
