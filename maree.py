@@ -249,10 +249,16 @@ class Maree:
     """
     Prediction de maree par methode harmonique.
 
+    Le Z0 (niveau moyen au-dessus du zero des cartes) est calcule
+    automatiquement a partir des harmoniques : c'est l'oppose du
+    minimum astronomique sur 18.6 ans (LAT = Lowest Astronomical Tide),
+    qui est par definition le zero hydrographique.
+
     Attributes
     ----------
     z0 : float
         Niveau moyen au-dessus du zero des cartes (metres).
+        Calcule automatiquement si non fourni.
     constituents : dict
         ``{nom: (amplitude_m, phase_greenwich_deg)}`` pour chaque constituant.
     name : str
@@ -262,13 +268,14 @@ class Maree:
     """
 
     def __init__(
-        self, z0: float, constituents: dict, name: str = "", lat: float = 48.0
+        self, constituents: dict, name: str = "", lat: float = 48.0,
+        z0: Optional[float] = None,
     ):
-        self.z0 = z0
         self.constituents = constituents
         self.name = name
         self.lat = lat
         self._prepare()
+        self.z0 = z0 if z0 is not None else self._compute_z0()
 
     # ── Preparation interne ─────────────────────────────────────────────
 
@@ -326,6 +333,83 @@ class Maree:
                 f"amp totale={total:.4f}m): "
                 + ", ".join(f"{n}({a:.4f})" for n, a in self._skipped)
             )
+
+    # ── Calcul automatique du Z0 ────────────────────────────────────────
+
+    def _compute_z0(self, years: float = 18.61, dt_min: int = 6) -> float:
+        """
+        Calcule Z0 = -LAT (Lowest Astronomical Tide) sur un cycle nodal.
+
+        Le zero hydrographique (zero des cartes) est defini comme le LAT,
+        c'est-a-dire le minimum absolu de la maree astronomique sur 18.6 ans.
+        Par definition h(t_LAT) = 0, donc Z0 = -min(partie oscillante).
+
+        Parameters
+        ----------
+        years : float
+            Duree de simulation (defaut 18.61 ans = 1 cycle nodal complet).
+        dt_min : int
+            Pas de temps en minutes (defaut 6 = precision ~1 cm).
+
+        Returns
+        -------
+        float
+            Z0 en metres.
+        """
+        if len(self._utide_indices) == 0:
+            return 0.0
+
+        t0 = datetime(2006, 1, 1)  # naive UTC
+        total_minutes = int(years * 365.25 * 24 * 60)
+
+        const = _CONST
+        speeds = const.freq[self._utide_indices] * 360.0  # deg/h
+        amp = self._utide_amp
+        phase_g = self._utide_phase
+
+        chunk_days = 30
+        chunk_minutes = chunk_days * 24 * 60
+        global_min = np.inf
+
+        minute = 0
+        while minute < total_minutes:
+            chunk_size = min(chunk_minutes, total_minutes - minute)
+            n_pts = chunk_size // dt_min
+
+            t_mid = t0 + timedelta(minutes=minute + chunk_size // 2)
+            t_ord = _datetime_to_ordinal(t_mid)
+
+            F, U, V = FUV(
+                t_ord, t_ord, self._utide_indices, self.lat,
+                ngflgs=[0, 0, 0, 0],
+            )
+            f = F.flatten()
+            u = U.flatten() * 360.0
+            v0 = V.flatten() * 360.0
+
+            hours = (
+                np.arange(n_pts) * (dt_min / 60.0)
+                - (chunk_size / 60.0 / 2.0)
+            )
+
+            phases_deg = (
+                (v0 + u)[np.newaxis, :]
+                + speeds[np.newaxis, :] * hours[:, np.newaxis]
+                - phase_g[np.newaxis, :]
+            )
+            h_osc = np.sum(
+                f[np.newaxis, :] * amp[np.newaxis, :]
+                * np.cos(np.deg2rad(phases_deg)),
+                axis=1,
+            )
+
+            chunk_min = float(np.min(h_osc))
+            if chunk_min < global_min:
+                global_min = chunk_min
+
+            minute += chunk_minutes
+
+        return float(-global_min)
 
     # ── Prediction ──────────────────────────────────────────────────────
 
@@ -497,7 +581,6 @@ class Maree:
         """
         fpath = Path(filepath)
         constituents = {}
-        z0 = 0.0
         name = fpath.stem
         name_set = False
         tz_offset_h = 0.0  # timezone offset from METRIC line
@@ -533,7 +616,7 @@ class Maree:
             cname = parts[0]
             try:
                 if cname == "Z0":
-                    z0 = float(parts[1])
+                    pass  # Z0 calcule automatiquement
                 elif len(parts) >= 3:
                     constituents[cname] = (float(parts[1]), float(parts[2]))
             except ValueError:
@@ -544,7 +627,6 @@ class Maree:
             constituents = cls._correct_phases_tz(constituents, tz_offset_h)
 
         return cls(
-            z0=z0,
             constituents=constituents,
             name=name,
             lat=lat if lat is not None else 48.0,
@@ -563,12 +645,12 @@ class Maree:
             nom       = Port-en-Bessin
             latitude  = 49.35
             longitude = -0.75
-            z0        = 4.3157
 
             [constituants]
             # nom    amplitude(m)   phase(°)
             M2       2.324588       272.4855
 
+        Le Z0 est calcule automatiquement (LAT sur 18.6 ans).
         Les phases sont referencees a Greenwich (UTC), convention
         Doodson/Schureman.
 
@@ -579,7 +661,6 @@ class Maree:
         """
         fpath = Path(filepath)
         constituents = {}
-        z0 = 0.0
         name = fpath.stem
         lat = 48.0
         section = None
@@ -617,7 +698,7 @@ class Maree:
                         elif key == "longitude":
                             pass  # informational
                         elif key == "z0":
-                            z0 = float(val)
+                            pass  # Z0 calcule automatiquement
                 elif section == "constituants":
                     parts = line.split()
                     if len(parts) >= 3:
@@ -629,7 +710,7 @@ class Maree:
                         except ValueError:
                             continue
 
-        return cls(z0=z0, constituents=constituents, name=name, lat=lat)
+        return cls(constituents=constituents, name=name, lat=lat)
 
     @staticmethod
     def _correct_phases_tz(constituents: dict, tz_offset_h: float) -> dict:
@@ -663,12 +744,13 @@ class Maree:
 
     @classmethod
     def from_atlas(
-        cls, atlas_dir: str, lat: float, lon: float, z0: float = 0.0
+        cls, atlas_dir: str, lat: float, lon: float,
     ) -> "Maree":
         """
         Charge les constantes depuis les atlas NetCDF SHOM/MARC.
 
         Utilise le plus proche voisin **valide** (ocean, non masque).
+        Le Z0 est calcule automatiquement (LAT sur 18.6 ans).
 
         Parameters
         ----------
@@ -676,8 +758,6 @@ class Maree:
             Repertoire contenant les fichiers ``*-XE-*-atlas.nc``.
         lat, lon : float
             Position (degres decimaux, ouest = negatif).
-        z0 : float
-            Niveau moyen (metres).  Non inclus dans les atlas.
         """
         import netCDF4
 
@@ -736,15 +816,16 @@ class Maree:
         atlas_name = adir.name
         desc = f"Atlas {atlas_name} @ ({actual_lat:.3f}N, {actual_lon:.3f}E)"
 
-        return cls(z0=z0, constituents=constituents, name=desc, lat=lat)
+        return cls(constituents=constituents, name=desc, lat=lat)
 
     @classmethod
     def from_atlas_auto(
-        cls, atlas_base_dir: str, lat: float, lon: float, z0: float = 0.0
+        cls, atlas_base_dir: str, lat: float, lon: float,
     ) -> "Maree":
         """
         Selectionne automatiquement le meilleur atlas (resolution la plus
         fine) couvrant la position demandee.
+        Le Z0 est calcule automatiquement (LAT sur 18.6 ans).
 
         Parameters
         ----------
@@ -752,8 +833,6 @@ class Maree:
             Repertoire parent (ex. ``MARC_L1-ATLAS-AHRMONIQUES``).
         lat, lon : float
             Position geographique.
-        z0 : float
-            Niveau moyen (metres).
         """
         import netCDF4
 
@@ -792,7 +871,7 @@ class Maree:
         if best is None:
             raise ValueError(f"Aucun atlas ne couvre ({lat:.3f}, {lon:.3f})")
 
-        return cls.from_atlas(str(best), lat, lon, z0=z0)
+        return cls.from_atlas(str(best), lat, lon)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -807,10 +886,11 @@ def hauteur_eau(
     td4_file: Optional[str] = None,
     atlas_dir: Optional[str] = None,
     atlas_base_dir: Optional[str] = None,
-    z0: Optional[float] = None,
 ) -> float:
     """
     Predit la hauteur d'eau en metres au-dessus du zero des cartes.
+
+    Le Z0 est calcule automatiquement a partir des harmoniques (LAT).
 
     Parameters
     ----------
@@ -825,8 +905,6 @@ def hauteur_eau(
         Repertoire d'un atlas NetCDF specifique.
     atlas_base_dir : str, optional
         Repertoire parent des atlas (selection automatique).
-    z0 : float, optional
-        Niveau moyen.  Requis avec atlas.
 
     Returns
     -------
@@ -844,13 +922,9 @@ def hauteur_eau(
     if td4_file is not None:
         m = Maree.from_td4(td4_file, lat=latitude)
     elif atlas_dir is not None:
-        if z0 is None:
-            raise ValueError("z0 requis avec atlas_dir")
-        m = Maree.from_atlas(atlas_dir, lat=latitude, lon=longitude, z0=z0)
+        m = Maree.from_atlas(atlas_dir, lat=latitude, lon=longitude)
     elif atlas_base_dir is not None:
-        if z0 is None:
-            raise ValueError("z0 requis avec atlas_base_dir")
-        m = Maree.from_atlas_auto(atlas_base_dir, lat=latitude, lon=longitude, z0=z0)
+        m = Maree.from_atlas_auto(atlas_base_dir, lat=latitude, lon=longitude)
     else:
         raise ValueError("Fournir td4_file, atlas_dir ou atlas_base_dir")
 

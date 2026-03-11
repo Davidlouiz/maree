@@ -117,7 +117,7 @@ print_table("ARCACHON", "td4, 105 constituants", res_a, ext_a, arcachon_ref)
 # 2. BREST — atlas V1_FINIS, 37 constituants
 # ═══════════════════════════════════════════════════════════════════════════
 m_brest = Maree.from_atlas(
-    "MARC_L1-ATLAS-AHRMONIQUES/V1_FINIS", lat=48.375, lon=-4.500, z0=4.10
+    "MARC_L1-ATLAS-AHRMONIQUES/V1_FINIS", lat=48.375, lon=-4.500
 )
 
 brest_ref = {
@@ -142,13 +142,13 @@ brest_ref = {
 }
 
 res_b, ext_b = compare(m_brest, brest_ref)
-print_table("BREST", "atlas V1_FINIS, Z0=4.10m", res_b, ext_b, brest_ref)
+print_table("BREST", f"atlas V1_FINIS, Z0={m_brest.z0:.2f}m (auto)", res_b, ext_b, brest_ref)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 3. DAHOUET — atlas V1_MANE
 # ═══════════════════════════════════════════════════════════════════════════
 m_dah = Maree.from_atlas(
-    "MARC_L1-ATLAS-AHRMONIQUES/V1_MANW", lat=48.583, lon=-2.567, z0=6.32
+    "MARC_L1-ATLAS-AHRMONIQUES/V1_MANW", lat=48.583, lon=-2.567
 )
 
 dahouet_ref = {
@@ -167,13 +167,13 @@ dahouet_ref = {
 }
 
 res_d, ext_d = compare(m_dah, dahouet_ref)
-print_table("DAHOUET", f"{m_dah.name}, Z0=6.32m", res_d, ext_d, dahouet_ref)
+print_table("DAHOUET", f"{m_dah.name}, Z0={m_dah.z0:.2f}m (auto)", res_d, ext_d, dahouet_ref)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. LE CROTOY — atlas V0_MANGA or V0_ATLNE
 # ═══════════════════════════════════════════════════════════════════════════
 m_cro = Maree.from_atlas(
-    "MARC_L1-ATLAS-AHRMONIQUES/V0_MANGA", lat=50.233, lon=1.467, z0=5.5
+    "MARC_L1-ATLAS-AHRMONIQUES/V0_MANGA", lat=50.233, lon=1.467
 )
 
 crotoy_ref = {
@@ -192,7 +192,7 @@ crotoy_ref = {
 }
 
 res_c, ext_c = compare(m_cro, crotoy_ref)
-print_table("LE CROTOY", f"{m_cro.name}, Z0=5.5m", res_c, ext_c, crotoy_ref)
+print_table("LE CROTOY", f"{m_cro.name}, Z0={m_cro.z0:.2f}m (auto)", res_c, ext_c, crotoy_ref)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # SUMMARY

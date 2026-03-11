@@ -40,12 +40,12 @@ format texte lisible de type INI :
 # Fichier harmonique — Port-en-Bessin
 # Phases référencées à Greenwich (UTC), convention Doodson/Schureman
 # Amplitude en mètres, phase en degrés
+# Z0 calculé automatiquement (LAT sur 18.6 ans)
 
 [port]
 nom       = Port-en-Bessin
 latitude  = 49.35
 longitude = -0.75
-z0        = 4.3157
 
 [constituants]
 # nom      amplitude(m)   phase(°)
@@ -54,6 +54,10 @@ S2           0.793776      -40.1051
 N2           0.430588     -106.2244
 ...
 ```
+
+Le Z0 (niveau moyen au-dessus du zéro des cartes) est calculé automatiquement
+au chargement à partir des harmoniques : Z0 = −min(marée astronomique sur 18.6 ans).
+C'est la définition même du zéro hydrographique (LAT = Lowest Astronomical Tide).
 
 Deux fichiers sont fournis : `Port-en-Bessin.har` et `Dielette.har`.
 
@@ -113,11 +117,11 @@ times, heights, extremes = m.maree_jour(date(2026, 3, 9), tz_offset_h=1)
 # Depuis un fichier .td4 (ex: Arcachon)
 m = Maree.from_td4("Arcachon.td4")
 
-# Depuis un atlas NetCDF SHOM/MARC (Z0 requis)
-m = Maree.from_atlas("MARC_L1-ATLAS-AHRMONIQUES/V1_MANE", lat=49.35, lon=-0.75, z0=4.32)
+# Depuis un atlas NetCDF SHOM/MARC (Z0 calculé automatiquement)
+m = Maree.from_atlas("MARC_L1-ATLAS-AHRMONIQUES/V1_MANE", lat=49.35, lon=-0.75)
 
 # Sélection automatique du meilleur atlas
-m = Maree.from_atlas_auto("MARC_L1-ATLAS-AHRMONIQUES", lat=49.35, lon=-0.75, z0=4.32)
+m = Maree.from_atlas_auto("MARC_L1-ATLAS-AHRMONIQUES", lat=49.35, lon=-0.75)
 ```
 
 ---
@@ -167,14 +171,13 @@ python plot_maree.py Dielette.har 2026-03-09 --tz 1 --output maree_dielette.png
 Extrait les constantes harmoniques des atlas SHOM/MARC pour une position
 quelconque et génère le fichier `.har` correspondant.
 
-> **Note** : Le Z0 (niveau moyen) n'est pas dans les atlas. Il doit être
-> fourni manuellement, par exemple en comparant les prédictions aux données
-> de référence ([maree.info](https://maree.info), annuaire SHOM).
+Le Z0 est calculé automatiquement à partir des harmoniques extraites
+(LAT = minimum astronomique sur 18.6 ans = zéro hydrographique).
 
 ```bash
-python genere_har.py --nom "Port-en-Bessin" --lat 49.35 --lon -0.75 --z0 4.32
-python genere_har.py --nom "Diélette" --lat 49.55 --lon -1.867 --z0 5.41 --output Dielette.har
-python genere_har.py --nom "Brest" --lat 48.38 --lon -4.49 --z0 4.10 --atlas-dir MARC_L1-ATLAS-AHRMONIQUES/V1_FINIS
+python genere_har.py --nom "Port-en-Bessin" --lat 49.35 --lon -0.75
+python genere_har.py --nom "Diélette" --lat 49.55 --lon -1.867 --output Dielette.har
+python genere_har.py --nom "Brest" --lat 48.38 --lon -4.49 --atlas-dir MARC_L1-ATLAS-AHRMONIQUES/V1_FINIS
 ```
 
 | Option | Description | Défaut |
@@ -182,7 +185,6 @@ python genere_har.py --nom "Brest" --lat 48.38 --lon -4.49 --z0 4.10 --atlas-dir
 | `--nom` | Nom du port | *(requis)* |
 | `--lat` | Latitude en degrés | *(requis)* |
 | `--lon` | Longitude (ouest = négatif) | *(requis)* |
-| `--z0` | Niveau moyen (m) | *(requis)* |
 | `--atlas-dir` | Répertoire atlas spécifique | Auto-détection |
 | `--atlas-base` | Répertoire parent des atlas | `MARC_L1-ATLAS-AHRMONIQUES` |
 | `--output` | Fichier de sortie | `<nom>.har` |
@@ -195,7 +197,8 @@ Extraction des harmoniques depuis V1_MANE...
   → Point océanique : (49.3526°N, -0.7492°E)
 
 Fichier sauvegardé : Port-en-Bessin.har
-  37 constituants, Z0 = 4.3157 m
+  37 constituants
+  Z0 = 4.3227 m (calculé automatiquement, LAT 18.6 ans)
 ```
 
 ---

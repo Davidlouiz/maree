@@ -3,14 +3,14 @@
 Génère un fichier .har (harmoniques de marée) pour une position donnée,
 en extrayant les constituants depuis les atlas SHOM/MARC.
 
-Usage:
-    python genere_har.py --nom "Port-en-Bessin" --lat 49.35 --lon -0.75 --z0 4.32
-    python genere_har.py --nom "Diélette" --lat 49.55 --lon -1.867 --z0 5.41 --output Dielette.har
-    python genere_har.py --nom "Arcachon" --lat 44.667 --lon -1.167 --z0 2.53 --atlas-dir MARC_L1-ATLAS-AHRMONIQUES/V1_AQUI
+Le Z0 (niveau moyen au-dessus du zéro des cartes) est calculé
+automatiquement à partir des harmoniques : Z0 = -LAT (minimum
+astronomique sur 18.6 ans).
 
-Le Z0 (niveau moyen au-dessus du zéro des cartes) doit être fourni
-manuellement : il n'est pas contenu dans les atlas.
-On peut le déterminer à partir de données de référence (maree.info, SHOM, etc.).
+Usage:
+    python genere_har.py --nom "Port-en-Bessin" --lat 49.35 --lon -0.75
+    python genere_har.py --nom "Diélette" --lat 49.55 --lon -1.867 --output Dielette.har
+    python genere_har.py --nom "Arcachon" --lat 44.667 --lon -1.167 --atlas-dir MARC_L1-ATLAS-AHRMONIQUES/V1_AQUI
 """
 
 import argparse
@@ -131,11 +131,10 @@ def write_har(
     nom: str,
     lat: float,
     lon: float,
-    z0: float,
     constituents: dict,
     atlas_name: str,
 ):
-    """Écrit un fichier .har."""
+    """Écrit un fichier .har (sans Z0, calculé au chargement par maree.py)."""
     # Trier par amplitude décroissante
     sorted_const = sorted(constituents.items(), key=lambda x: -x[1][0])
 
@@ -149,12 +148,12 @@ def write_har(
             f"# Phases référencées à Greenwich (UTC), convention Doodson/Schureman\n"
         )
         f.write(f"# Amplitude en mètres, phase en degrés\n")
+        f.write(f"# Z0 calculé automatiquement (LAT sur 18.6 ans)\n")
         f.write(f"\n")
         f.write(f"[port]\n")
         f.write(f"nom       = {nom}\n")
         f.write(f"latitude  = {lat}\n")
         f.write(f"longitude = {lon}\n")
-        f.write(f"z0        = {z0:.4f}\n")
         f.write(f"\n")
         f.write(f"[constituants]\n")
         f.write(f"# {'nom':<12s} {'amplitude(m)':>12s}   {'phase(°)':>10s}\n")
@@ -170,12 +169,6 @@ def main():
     parser.add_argument("--lat", type=float, required=True, help="Latitude (degrés)")
     parser.add_argument(
         "--lon", type=float, required=True, help="Longitude (degrés, ouest = négatif)"
-    )
-    parser.add_argument(
-        "--z0",
-        type=float,
-        required=True,
-        help="Niveau moyen au-dessus du zéro des cartes (m)",
     )
     parser.add_argument(
         "--atlas-dir",
@@ -216,9 +209,14 @@ def main():
         output = f"{safe_name}.har"
 
     # Écriture
-    write_har(output, args.nom, args.lat, args.lon, args.z0, constituents, atlas_name)
+    write_har(output, args.nom, args.lat, args.lon, constituents, atlas_name)
+
+    # Calcul du Z0 pour affichage
+    from maree import Maree
+    m = Maree.from_har(output)
     print(f"\nFichier sauvegardé : {output}")
-    print(f"  {len(constituents)} constituants, Z0 = {args.z0:.4f} m")
+    print(f"  {len(constituents)} constituants")
+    print(f"  Z0 = {m.z0:.4f} m (calculé automatiquement, LAT 18.6 ans)")
 
 
 if __name__ == "__main__":
