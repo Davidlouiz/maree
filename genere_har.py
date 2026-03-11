@@ -146,7 +146,7 @@ def _write_har(
 
     with output_path.open("w", encoding="utf-8") as f:
         f.write(f"# Fichier harmonique — {port_name}\n")
-        f.write(f"# Source: atlas SHOM/MARC {atlas_name}\n")
+        f.write(f"# Source: atlas PREVIMER/MARS2D (Ifremer/SHOM) {atlas_name}\n")
         f.write(f"# Généré le {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
         f.write(
             "# Phases référencées à Greenwich (UTC), convention Doodson/Schureman\n"
