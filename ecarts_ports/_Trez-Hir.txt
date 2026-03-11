@@ -1,0 +1,7 @@
+port_id=81
+nom=Trez-Hir
+seuil_m=0.200
+ecart_moyen_m=0.3151
+ecart_max_m=0.3751
+n_points=27
+depasse_seuil=oui

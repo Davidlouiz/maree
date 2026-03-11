@@ -1,0 +1,7 @@
+port_id=71
+nom=Baie de Morlaix - Carantec
+seuil_m=0.200
+ecart_moyen_m=0.1149
+ecart_max_m=0.2832
+n_points=27
+depasse_seuil=non

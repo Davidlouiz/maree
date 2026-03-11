@@ -1,0 +1,7 @@
+port_id=65
+nom=Tréguier
+seuil_m=0.200
+ecart_moyen_m=0.1464
+ecart_max_m=0.2937
+n_points=26
+depasse_seuil=non

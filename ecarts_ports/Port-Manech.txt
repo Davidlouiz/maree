@@ -1,0 +1,7 @@
+port_id=155
+nom=Port Manec'h
+seuil_m=0.200
+ecart_moyen_m=0.0503
+ecart_max_m=0.0939
+n_points=27
+depasse_seuil=non

@@ -1,0 +1,7 @@
+port_id=67
+nom=Ploumanac'h
+seuil_m=0.200
+ecart_moyen_m=0.1970
+ecart_max_m=0.3712
+n_points=26
+depasse_seuil=non

@@ -1,0 +1,7 @@
+port_id=68
+nom=Trébeurden
+seuil_m=0.200
+ecart_moyen_m=0.1714
+ecart_max_m=0.3558
+n_points=27
+depasse_seuil=non

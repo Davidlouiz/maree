@@ -1,0 +1,7 @@
+port_id=5
+nom=Calais
+seuil_m=0.200
+ecart_moyen_m=0.1043
+ecart_max_m=0.2305
+n_points=27
+depasse_seuil=non

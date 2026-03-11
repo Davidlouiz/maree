@@ -1,0 +1,7 @@
+port_id=83
+nom=Camaret-sur-Mer
+seuil_m=0.200
+ecart_moyen_m=0.1409
+ecart_max_m=0.2744
+n_points=27
+depasse_seuil=non

@@ -1,0 +1,7 @@
+port_id=95
+nom=Lorient
+seuil_m=0.200
+ecart_moyen_m=2.2876
+ecart_max_m=3.2986
+n_points=27
+depasse_seuil=oui

@@ -1,0 +1,7 @@
+port_id=117
+nom=Saint-Nazaire
+seuil_m=0.200
+ecart_moyen_m=0.0858
+ecart_max_m=0.1697
+n_points=27
+depasse_seuil=non

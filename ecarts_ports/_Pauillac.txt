@@ -1,0 +1,7 @@
+port_id=160
+nom=Pauillac
+seuil_m=0.200
+ecart_moyen_m=0.3680
+ecart_max_m=0.7941
+n_points=26
+depasse_seuil=oui

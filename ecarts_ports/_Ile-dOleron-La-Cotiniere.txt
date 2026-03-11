@@ -1,0 +1,7 @@
+port_id=153
+nom=Ile d'Oléron (La Cotinière)
+seuil_m=0.200
+ecart_moyen_m=0.6462
+ecart_max_m=0.7468
+n_points=27
+depasse_seuil=oui

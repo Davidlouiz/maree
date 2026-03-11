@@ -1,0 +1,7 @@
+port_id=93
+nom=Concarneau
+seuil_m=0.200
+ecart_moyen_m=0.1522
+ecart_max_m=0.2427
+n_points=27
+depasse_seuil=non

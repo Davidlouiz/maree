@@ -1,0 +1,7 @@
+port_id=74
+nom=Aber Wrac'h
+seuil_m=0.200
+ecart_moyen_m=0.9285
+ecart_max_m=1.4122
+n_points=27
+depasse_seuil=oui

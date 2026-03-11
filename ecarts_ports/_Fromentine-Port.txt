@@ -1,0 +1,7 @@
+port_id=122
+nom=Fromentine Port
+seuil_m=0.200
+ecart_moyen_m=1.3053
+ecart_max_m=1.6050
+n_points=27
+depasse_seuil=oui

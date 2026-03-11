@@ -1,0 +1,7 @@
+port_id=61
+nom=Les Héaux-de-Bréhat
+seuil_m=0.200
+ecart_moyen_m=3.4341
+ecart_max_m=4.6153
+n_points=26
+depasse_seuil=oui

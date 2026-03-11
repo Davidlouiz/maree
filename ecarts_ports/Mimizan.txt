@@ -1,0 +1,7 @@
+port_id=138
+nom=Mimizan
+seuil_m=0.200
+ecart_moyen_m=0.1215
+ecart_max_m=0.1484
+n_points=27
+depasse_seuil=non

@@ -1,0 +1,7 @@
+port_id=105
+nom=Auray (St-Goustan)
+seuil_m=0.200
+ecart_moyen_m=0.1643
+ecart_max_m=0.2886
+n_points=27
+depasse_seuil=non

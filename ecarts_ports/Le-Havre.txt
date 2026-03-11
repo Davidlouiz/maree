@@ -1,0 +1,7 @@
+port_id=19
+nom=Le Havre
+seuil_m=0.200
+ecart_moyen_m=0.0752
+ecart_max_m=0.2509
+n_points=27
+depasse_seuil=non

@@ -1,0 +1,7 @@
+port_id=108
+nom=Saint-Armel (Le Passage)
+seuil_m=0.200
+ecart_moyen_m=1.6789
+ecart_max_m=2.8760
+n_points=26
+depasse_seuil=oui

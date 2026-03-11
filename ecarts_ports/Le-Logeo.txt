@@ -1,0 +1,7 @@
+port_id=109
+nom=Le Logeo
+seuil_m=0.200
+ecart_moyen_m=0.1732
+ecart_max_m=0.4187
+n_points=26
+depasse_seuil=non

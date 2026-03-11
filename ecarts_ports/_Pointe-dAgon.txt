@@ -1,0 +1,7 @@
+port_id=43
+nom=Pointe d'Agon
+seuil_m=0.200
+ecart_moyen_m=1.4587
+ecart_max_m=2.0102
+n_points=26
+depasse_seuil=oui

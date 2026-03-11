@@ -1,0 +1,7 @@
+port_id=75
+nom=L'Aber Benoît
+seuil_m=0.200
+ecart_moyen_m=1.1846
+ecart_max_m=1.5133
+n_points=27
+depasse_seuil=oui

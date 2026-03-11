@@ -1,0 +1,7 @@
+port_id=41
+nom=Saint-Germain-sur-Ay
+seuil_m=0.200
+ecart_moyen_m=2.0468
+ecart_max_m=2.6813
+n_points=26
+depasse_seuil=oui

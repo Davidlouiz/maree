@@ -1,0 +1,7 @@
+port_id=58
+nom=Binic
+seuil_m=0.200
+ecart_moyen_m=0.1829
+ecart_max_m=0.3840
+n_points=26
+depasse_seuil=non

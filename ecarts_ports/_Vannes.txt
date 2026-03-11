@@ -1,0 +1,7 @@
+port_id=107
+nom=Vannes
+seuil_m=0.200
+ecart_moyen_m=0.7481
+ecart_max_m=1.1481
+n_points=26
+depasse_seuil=oui

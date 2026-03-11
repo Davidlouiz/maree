@@ -1,0 +1,7 @@
+port_id=25
+nom=Ouistreham
+seuil_m=0.200
+ecart_moyen_m=0.2264
+ecart_max_m=0.4679
+n_points=27
+depasse_seuil=oui

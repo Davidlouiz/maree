@@ -1,0 +1,7 @@
+port_id=15
+nom=Saint-Valery-en-Caux
+seuil_m=0.200
+ecart_moyen_m=0.1912
+ecart_max_m=0.4609
+n_points=27
+depasse_seuil=non

@@ -1,0 +1,7 @@
+port_id=121
+nom=Fromentine Bouée
+seuil_m=0.200
+ecart_moyen_m=0.6112
+ecart_max_m=0.7719
+n_points=27
+depasse_seuil=oui

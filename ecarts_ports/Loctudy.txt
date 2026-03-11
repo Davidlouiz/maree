@@ -1,0 +1,7 @@
+port_id=91
+nom=Loctudy
+seuil_m=0.200
+ecart_moyen_m=0.1237
+ecart_max_m=0.2449
+n_points=27
+depasse_seuil=non

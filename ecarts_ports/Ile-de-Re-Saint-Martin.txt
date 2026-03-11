@@ -1,0 +1,7 @@
+port_id=126
+nom=Ile de Ré (Saint-Martin)
+seuil_m=0.200
+ecart_moyen_m=0.1241
+ecart_max_m=0.2723
+n_points=27
+depasse_seuil=non

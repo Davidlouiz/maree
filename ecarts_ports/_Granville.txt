@@ -1,0 +1,7 @@
+port_id=45
+nom=Granville
+seuil_m=0.200
+ecart_moyen_m=0.3646
+ecart_max_m=0.7341
+n_points=26
+depasse_seuil=oui

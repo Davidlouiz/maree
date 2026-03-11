@@ -1,0 +1,7 @@
+port_id=60
+nom=Ile de Bréhat
+seuil_m=0.200
+ecart_moyen_m=3.6279
+ecart_max_m=5.0420
+n_points=26
+depasse_seuil=oui

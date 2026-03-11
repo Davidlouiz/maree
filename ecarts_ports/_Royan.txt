@@ -1,0 +1,7 @@
+port_id=131
+nom=Royan
+seuil_m=0.200
+ecart_moyen_m=0.5043
+ecart_max_m=0.6231
+n_points=27
+depasse_seuil=oui

@@ -1,0 +1,7 @@
+port_id=64
+nom=Port-Béni
+seuil_m=0.200
+ecart_moyen_m=0.1135
+ecart_max_m=0.2562
+n_points=26
+depasse_seuil=non

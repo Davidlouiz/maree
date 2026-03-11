@@ -1,0 +1,7 @@
+port_id=103
+nom=La Trinité-sur-Mer
+seuil_m=0.200
+ecart_moyen_m=1.8510
+ecart_max_m=2.3866
+n_points=27
+depasse_seuil=oui

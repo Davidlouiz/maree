@@ -1,0 +1,7 @@
+port_id=98
+nom=Ile de Groix (Port-Tudy)
+seuil_m=0.200
+ecart_moyen_m=0.1815
+ecart_max_m=0.2631
+n_points=27
+depasse_seuil=non

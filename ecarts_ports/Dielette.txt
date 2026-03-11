@@ -1,0 +1,7 @@
+port_id=37
+nom=Diélette
+seuil_m=0.200
+ecart_moyen_m=0.1555
+ecart_max_m=0.3588
+n_points=26
+depasse_seuil=non

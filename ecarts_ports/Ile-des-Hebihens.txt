@@ -1,0 +1,7 @@
+port_id=53
+nom=Ile des Hébihens
+seuil_m=0.200
+ecart_moyen_m=0.1602
+ecart_max_m=0.3578
+n_points=26
+depasse_seuil=non

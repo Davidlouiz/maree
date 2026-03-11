@@ -1,0 +1,7 @@
+port_id=161
+nom=Bordeaux
+seuil_m=0.200
+ecart_moyen_m=0.6577
+ecart_max_m=1.4302
+n_points=26
+depasse_seuil=oui

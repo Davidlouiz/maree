@@ -1,163 +1,192 @@
 #!/usr/bin/env python3
-"""
-Génère un fichier .har (harmoniques de marée) pour une position donnée,
-en extrayant les constituants depuis les atlas SHOM/MARC.
+"""Génération propre d'un fichier .har depuis les atlas SHOM/MARC.
 
-Le Z0 (niveau moyen au-dessus du zéro des cartes) est calculé
-automatiquement à partir des harmoniques : Z0 = -LAT (minimum
-astronomique sur 18.6 ans).
-
-Usage:
-    python genere_har.py --nom "Port-en-Bessin" --lat 49.35 --lon -0.75
-    python genere_har.py --nom "Diélette" --lat 49.55 --lon -1.867 --output Dielette.har
-    python genere_har.py --nom "Arcachon" --lat 44.667 --lon -1.167 --atlas-dir MARC_L1-ATLAS-AHRMONIQUES/V1_AQUI
+Mode standard:
+1) on prend le point océanique atlas le plus proche de (lat, lon),
+2) on extrait amplitude/phase de chaque constituant à ce point,
+3) on calcule Z0 via ``maree.Maree``,
+4) on écrit un ``.har`` avec les vraies coordonnées utilisées.
 """
+
+from __future__ import annotations
 
 import argparse
-import warnings
+import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
 
+@dataclass(frozen=True)
+class AtlasPoint:
+    index: tuple[int, int]
+    lat: float
+    lon: float
+
+
+def _list_constituent_files(atlas_dir: Path) -> list[Path]:
+    files = sorted(atlas_dir.glob("*-XE-*-atlas.nc"))
+    if not files:
+        raise FileNotFoundError(f"Aucun fichier *-XE-* dans {atlas_dir}")
+    return files
+
+
+def _exact_ocean_point(
+    atlas_dir: Path,
+    lat: float,
+    lon: float,
+) -> AtlasPoint:
+    import netCDF4
+
+    files = _list_constituent_files(atlas_dir)
+    m2_file = next((f for f in files if f.name.startswith("M2-")), files[0])
+
+    with netCDF4.Dataset(str(m2_file)) as ds:
+        grid_lat = ds.variables["latitude"][:]
+        grid_lon = ds.variables["longitude"][:]
+        amp = ds.variables["XE_a"][:]
+
+    ocean_mask = ~np.ma.getmaskarray(amp)
+    dist2 = (grid_lat - lat) ** 2 + (grid_lon - lon) ** 2
+    valid_dist2 = np.where(ocean_mask, dist2, np.inf)
+    if not np.isfinite(valid_dist2).any():
+        raise ValueError(
+            f"Aucun point océanique disponible dans l'atlas pour ({lat:.6f}, {lon:.6f})"
+        )
+
+    idx_raw = np.unravel_index(np.argmin(valid_dist2), valid_dist2.shape)
+    idx = (int(idx_raw[0]), int(idx_raw[1]))
+
+    point_lat = float(grid_lat[idx])
+    point_lon = float(grid_lon[idx])
+
+    return AtlasPoint(index=idx, lat=point_lat, lon=point_lon)
+
+
+def _extract_constituents(
+    atlas_dir: Path,
+    point_index: tuple[int, int],
+) -> dict[str, tuple[float, float]]:
+    import netCDF4
+
+    constituents: dict[str, tuple[float, float]] = {}
+    for nc_file in _list_constituent_files(atlas_dir):
+        cname = nc_file.name.split("-XE-")[0]
+        if cname == "Z0":
+            continue
+
+        with netCDF4.Dataset(str(nc_file)) as ds:
+            amp = ds.variables["XE_a"][point_index]
+            phase = ds.variables["XE_G"][point_index]
+
+        if np.ma.is_masked(amp) or np.ma.is_masked(phase):
+            raise ValueError(
+                f"Donnée manquante au point atlas pour le constituant {cname}"
+            )
+
+        amp_f = float(amp)
+        phase_f = float(phase)
+        if np.isnan(amp_f) or np.isnan(phase_f):
+            raise ValueError(f"Donnée NaN au point atlas pour le constituant {cname}")
+
+        constituents[cname] = (amp_f, phase_f)
+
+    if not constituents:
+        raise ValueError("Aucun constituant exploitable extrait de l'atlas")
+    return constituents
+
+
+def _find_atlas_with_exact_point(atlas_base_dir: Path, lat: float, lon: float) -> Path:
+    candidates = sorted(
+        (d for d in atlas_base_dir.iterdir() if d.is_dir()), reverse=True
+    )
+    if not candidates:
+        raise FileNotFoundError(f"Aucun sous-répertoire atlas dans {atlas_base_dir}")
+
+    best_dir: Path | None = None
+    best_dist2 = np.inf
+    for atlas_dir in candidates:
+        try:
+            point = _exact_ocean_point(atlas_dir, lat, lon)
+        except (FileNotFoundError, ValueError):
+            continue
+        d2 = (point.lat - lat) ** 2 + (point.lon - lon) ** 2
+        if d2 < best_dist2:
+            best_dist2 = d2
+            best_dir = atlas_dir
+
+    if best_dir is None:
+        raise ValueError(f"Aucun atlas valide trouvé pour ({lat:.6f}, {lon:.6f})")
+    return best_dir
+
+
+def _safe_filename(name: str) -> str:
+    cleaned = re.sub(r"[^\w\-]+", "-", name.strip(), flags=re.UNICODE)
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+    return cleaned or "port"
+
+
+def _write_har(
+    output_path: Path,
+    port_name: str,
+    used_lat: float,
+    used_lon: float,
+    constituents: dict[str, tuple[float, float]],
+    atlas_name: str,
+) -> float:
+    from maree import Maree
+
+    maree_obj = Maree(constituents=constituents, name=port_name, lat=used_lat)
+    z0 = maree_obj.z0
+    sorted_constituents = sorted(
+        constituents.items(), key=lambda item: (-item[1][0], item[0])
+    )
+
+    with output_path.open("w", encoding="utf-8") as f:
+        f.write(f"# Fichier harmonique — {port_name}\n")
+        f.write(f"# Source: atlas SHOM/MARC {atlas_name}\n")
+        f.write(f"# Généré le {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
+        f.write(
+            "# Phases référencées à Greenwich (UTC), convention Doodson/Schureman\n"
+        )
+        f.write("# Amplitude en mètres, phase en degrés\n\n")
+        f.write("[port]\n")
+        f.write(f"nom       = {port_name}\n")
+        f.write(f"latitude  = {used_lat:.6f}\n")
+        f.write(f"longitude = {used_lon:.6f}\n")
+        f.write(f"z0        = {z0:.4f}\n\n")
+        f.write("[constituants]\n")
+        f.write(f"# {'nom':<12s} {'amplitude(m)':>12s}   {'phase(°)':>10s}\n")
+        for cname, (amp, phase) in sorted_constituents:
+            f.write(f"{cname:<12s} {amp:12.6f}   {phase:10.4f}\n")
+
+    return float(z0)
+
+
+# API publique (compatibilité avec scripts existants)
+def find_best_atlas(atlas_base_dir: str, lat: float, lon: float) -> str:
+    """Retourne l'atlas dont le point océanique le plus proche est optimal."""
+    return str(_find_atlas_with_exact_point(Path(atlas_base_dir), lat, lon))
+
+
 def extract_constituents(
     atlas_dir: str,
     lat: float,
     lon: float,
-    rayon_recherche: float = 0.15,
-) -> tuple:
+    rayon_recherche: float | None = None,
+) -> tuple[dict[str, tuple[float, float]], str, float, float]:
+    """Extrait les constituants au point océanique le plus proche.
+
+    Le paramètre ``rayon_recherche`` est ignoré et conservé uniquement
+    pour compatibilité ascendante.
     """
-    Extrait les harmoniques (amplitude, phase Greenwich) depuis un atlas.
-
-    Stratégie de sélection du point atlas (best-M2) :
-
-    1. Chercher tous les points océaniques dans un rayon de
-       ``rayon_recherche``° autour de la position demandée.
-    2. Retenir le point ayant la plus grande amplitude M2.
-       Cela permet de s'affranchir des mailles d'estran (sable
-       découvrant à marée basse) dont le M2 est artificiellement faible.
-    3. Fallback : si aucun point dans le rayon, prendre le
-       plus proche voisin océanique.
-
-    Parameters
-    ----------
-    atlas_dir : str
-        Répertoire contenant les fichiers NetCDF de l'atlas.
-    lat, lon : float
-        Coordonnées du port souhaité (degrés).
-    rayon_recherche : float
-        Rayon de recherche (degrés). Par défaut 0.15° ≈ 12-17 km.
-
-    Returns
-    -------
-    constituents : dict  {nom: (amplitude_m, phase_deg)}
-    atlas_name : str     Nom du sous-répertoire atlas utilisé
-    actual_lat : float   Latitude du point océanique retenu
-    actual_lon : float   Longitude du point océanique retenu
-    """
-    import netCDF4
-
-    adir = Path(atlas_dir)
-    xe_files = sorted(adir.glob("*-XE-*-atlas.nc"))
-    if not xe_files:
-        raise FileNotFoundError(f"Aucun fichier *-XE-* dans {adir}")
-
-    # Lecture de la grille et de l'amplitude M2
-    m2_file = next((f for f in xe_files if f.name.startswith("M2-")), xe_files[0])
-    ds0 = netCDF4.Dataset(str(m2_file))
-    grid_lat = ds0.variables["latitude"][:]
-    grid_lon = ds0.variables["longitude"][:]
-    amp0 = ds0.variables["XE_a"][:]
-    ds0.close()
-
-    dist = (grid_lat - lat) ** 2 + (grid_lon - lon) ** 2
-    ocean_mask = ~np.ma.getmaskarray(amp0)
-    amp0_data = np.ma.filled(amp0, 0.0)
-
-    # ── Stratégie best-M2 : max M2 dans le rayon ──
-    dist_lin = np.sqrt(dist)
-    mask_rayon = (dist_lin < rayon_recherche) & ocean_mask
-
-    if np.any(mask_rayon):
-        amp_in_rayon = np.where(mask_rayon, amp0_data, 0.0)
-        idx = np.unravel_index(np.argmax(amp_in_rayon), amp_in_rayon.shape)
-    else:
-        # Fallback : plus proche voisin océanique
-        valid_dist = np.where(ocean_mask, dist, 1e10)
-        idx = np.unravel_index(np.argmin(valid_dist), valid_dist.shape)
-        if valid_dist[idx] > 1e9:
-            raise ValueError(f"Aucun point océanique près de ({lat:.3f}, {lon:.3f})")
-
-    actual_lat = float(grid_lat[idx])
-    actual_lon = float(grid_lon[idx])
-    dist_deg = float(dist_lin[idx])
-
-    if dist_deg > 0.1:
-        warnings.warn(
-            f"Point atlas retenu à {dist_deg:.3f}° "
-            f"de ({lat:.3f}, {lon:.3f}) → ({actual_lat:.3f}, {actual_lon:.3f})"
-        )
-
-    # Extraction de chaque constituant au point sélectionné
-    constituents = {}
-    for f in xe_files:
-        cname = f.name.split("-XE-")[0]
-        if cname == "Z0":
-            continue
-
-        ds = netCDF4.Dataset(str(f))
-        a = ds.variables["XE_a"][idx]
-        p = ds.variables["XE_G"][idx]
-        ds.close()
-
-        if np.ma.is_masked(a) or np.ma.is_masked(p):
-            continue
-        a, p = float(a), float(p)
-        if np.isnan(a) or np.isnan(p):
-            continue
-
-        constituents[cname] = (a, p)
-
-    return constituents, adir.name, actual_lat, actual_lon
-
-
-def find_best_atlas(atlas_base_dir: str, lat: float, lon: float) -> str:
-    """Sélectionne le meilleur atlas (résolution la plus fine) couvrant le point."""
-    import netCDF4
-
-    base = Path(atlas_base_dir)
-    atlas_dirs = sorted([d for d in base.iterdir() if d.is_dir()], reverse=True)
-
-    best = None
-    best_dist = 1e10
-
-    for ad in atlas_dirs:
-        xe_files = list(ad.glob("*-XE-*-atlas.nc"))
-        if not xe_files:
-            continue
-
-        m2_file = next((f for f in xe_files if f.name.startswith("M2-")), xe_files[0])
-        ds = netCDF4.Dataset(str(m2_file))
-        glat = ds.variables["latitude"][:]
-        glon = ds.variables["longitude"][:]
-        amp = ds.variables["XE_a"][:]
-        ds.close()
-
-        dist = (glat - lat) ** 2 + (glon - lon) ** 2
-        ocean = ~np.ma.getmaskarray(amp)
-        vd = np.where(ocean, dist, 1e10)
-        min_idx = np.unravel_index(np.argmin(vd), vd.shape)
-        d = float(vd[min_idx])
-
-        if d < best_dist:
-            best_dist = d
-            best = ad
-
-    if best is None:
-        raise ValueError(f"Aucun atlas ne couvre ({lat:.3f}, {lon:.3f})")
-
-    return str(best)
+    del rayon_recherche
+    atlas_path = Path(atlas_dir)
+    point = _exact_ocean_point(atlas_path, lat, lon)
+    constituents = _extract_constituents(atlas_path, point.index)
+    return constituents, atlas_path.name, point.lat, point.lon
 
 
 def write_har(
@@ -165,102 +194,136 @@ def write_har(
     nom: str,
     lat: float,
     lon: float,
-    constituents: dict,
+    constituents: dict[str, tuple[float, float]],
     atlas_name: str,
-):
-    """Écrit un fichier .har avec Z0 pré-calculé."""
-    from maree import Maree
+) -> None:
+    """Écrit un HAR en utilisant strictement les coordonnées fournies."""
+    _write_har(
+        output_path=Path(filepath),
+        port_name=nom,
+        used_lat=lat,
+        used_lon=lon,
+        constituents=constituents,
+        atlas_name=atlas_name,
+    )
 
-    # Trier par amplitude décroissante
-    sorted_const = sorted(constituents.items(), key=lambda x: -x[1][0])
 
-    # Calculer Z0 à partir des harmoniques
-    maree_obj = Maree(constituents=constituents, name=nom, lat=lat)
-    z0 = maree_obj.z0
+def move_grid_point(
+    atlas_base_dir: str,
+    current_lat: float,
+    current_lon: float,
+    direction: str,
+) -> tuple[dict[str, tuple[float, float]], str, float, float]:
+    """Déplace le point de grille d'une case dans la direction donnée.
 
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(f"# Fichier harmonique — {nom}\n")
-        f.write(f"# Source: atlas MARC/SHOM {atlas_name}\n")
-        f.write(f"# Généré le {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
-        f.write(f"# Format: .har (harmoniques marée)\n")
-        f.write(f"#\n")
-        f.write(
-            f"# Phases référencées à Greenwich (UTC), convention Doodson/Schureman\n"
+    Parameters
+    ----------
+    atlas_base_dir : str
+        Répertoire parent des atlas.
+    current_lat, current_lon : float
+        Coordonnées actuelles (point de grille exact ou approché).
+    direction : str
+        'N', 'S', 'E' ou 'O' (nord, sud, est, ouest).
+
+    Returns
+    -------
+    (constituents, atlas_name, new_lat, new_lon)
+        Mêmes sorties que ``extract_constituents``.
+
+    Raises
+    ------
+    ValueError
+        Si le déplacement sort de la grille ou tombe sur la terre.
+    """
+    import netCDF4
+
+    atlas_path = _find_atlas_with_exact_point(
+        Path(atlas_base_dir), current_lat, current_lon
+    )
+    files = _list_constituent_files(atlas_path)
+    m2_file = next((f for f in files if f.name.startswith("M2-")), files[0])
+
+    with netCDF4.Dataset(str(m2_file)) as ds:
+        grid_lat = ds.variables["latitude"][:]
+        grid_lon = ds.variables["longitude"][:]
+        amp = ds.variables["XE_a"][:]
+
+    ocean_mask = ~np.ma.getmaskarray(amp)
+
+    # Trouver l'index du point de grille le plus proche (parmi les océaniques)
+    dist2 = (grid_lat - current_lat) ** 2 + (grid_lon - current_lon) ** 2
+    valid_dist2 = np.where(ocean_mask, dist2, np.inf)
+    idx_raw = np.unravel_index(np.argmin(valid_dist2), valid_dist2.shape)
+    j, i = int(idx_raw[0]), int(idx_raw[1])
+
+    # Déplacer d'une case (j croissant = nord, i croissant = est)
+    dj, di = {"N": (1, 0), "S": (-1, 0), "E": (0, 1), "O": (0, -1)}[direction.upper()]
+    nj, ni = j + dj, i + di
+
+    if nj < 0 or nj >= grid_lat.shape[0] or ni < 0 or ni >= grid_lat.shape[1]:
+        raise ValueError(f"Déplacement {direction} sort de la grille atlas")
+
+    if not ocean_mask[nj, ni]:
+        raise ValueError(
+            f"Le point {direction} ({float(grid_lat[nj, ni]):.6f}, "
+            f"{float(grid_lon[nj, ni]):.6f}) est sur la terre"
         )
-        f.write(f"# Amplitude en mètres, phase en degrés\n")
-        f.write(
-            f"# Z0 = niveau moyen au-dessus du zéro des cartes (LAT sur 18.6 ans)\n"
-        )
-        f.write(f"\n")
-        f.write(f"[port]\n")
-        f.write(f"nom       = {nom}\n")
-        f.write(f"latitude  = {lat}\n")
-        f.write(f"longitude = {lon}\n")
-        f.write(f"z0        = {z0:.4f}\n")
-        f.write(f"\n")
-        f.write(f"[constituants]\n")
-        f.write(f"# {'nom':<12s} {'amplitude(m)':>12s}   {'phase(°)':>10s}\n")
-        for cname, (amp, phase) in sorted_const:
-            f.write(f"{cname:<12s} {amp:12.6f}   {phase:10.4f}\n")
+
+    new_idx = (nj, ni)
+    new_lat = float(grid_lat[new_idx])
+    new_lon = float(grid_lon[new_idx])
+
+    constituents = _extract_constituents(atlas_path, new_idx)
+    return constituents, atlas_path.name, new_lat, new_lon
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Génère un fichier .har depuis les atlas SHOM/MARC"
     )
     parser.add_argument("--nom", required=True, help="Nom du port")
     parser.add_argument("--lat", type=float, required=True, help="Latitude (degrés)")
     parser.add_argument(
-        "--lon", type=float, required=True, help="Longitude (degrés, ouest = négatif)"
+        "--lon", type=float, required=True, help="Longitude (degrés, ouest négatif)"
     )
     parser.add_argument(
         "--atlas-dir",
+        type=Path,
         default=None,
-        help="Répertoire atlas spécifique (ex: .../V1_MANE)",
+        help="Répertoire atlas spécifique (sinon auto via --atlas-base)",
     )
     parser.add_argument(
         "--atlas-base",
-        default="MARC_L1-ATLAS-AHRMONIQUES",
-        help="Répertoire parent des atlas (défaut: MARC_L1-ATLAS-AHRMONIQUES)",
+        type=Path,
+        default=Path("MARC_L1-ATLAS-AHRMONIQUES"),
+        help="Répertoire parent des atlas",
     )
     parser.add_argument(
-        "--output", "-o", default=None, help="Fichier de sortie (défaut: <nom>.har)"
+        "--output", "-o", type=Path, default=None, help="Fichier .har de sortie"
     )
     args = parser.parse_args()
 
-    # Déterminer le répertoire atlas
-    if args.atlas_dir:
-        atlas_dir = args.atlas_dir
-    else:
-        print(f"Recherche du meilleur atlas pour ({args.lat:.3f}, {args.lon:.3f})...")
-        atlas_dir = find_best_atlas(args.atlas_base, args.lat, args.lon)
-        print(f"  → Atlas sélectionné : {Path(atlas_dir).name}")
-
-    # Extraction
-    print(f"Extraction des harmoniques depuis {Path(atlas_dir).name}...")
-    constituents, atlas_name, actual_lat, actual_lon = extract_constituents(
-        atlas_dir, args.lat, args.lon
+    atlas_dir = args.atlas_dir or _find_atlas_with_exact_point(
+        args.atlas_base, args.lat, args.lon
     )
-    print(f"  → {len(constituents)} constituants extraits")
-    print(f"  → Point océanique : ({actual_lat:.4f}°N, {actual_lon:.4f}°E)")
+    point = _exact_ocean_point(atlas_dir, args.lat, args.lon)
+    constituents = _extract_constituents(atlas_dir, point.index)
 
-    # Fichier de sortie
-    if args.output:
-        output = args.output
-    else:
-        safe_name = args.nom.replace(" ", "-").replace("é", "e").replace("è", "e")
-        output = f"{safe_name}.har"
+    output_path = args.output or Path(f"{_safe_filename(args.nom)}.har")
+    z0 = _write_har(
+        output_path=output_path,
+        port_name=args.nom,
+        used_lat=point.lat,
+        used_lon=point.lon,
+        constituents=constituents,
+        atlas_name=atlas_dir.name,
+    )
 
-    # Écriture
-    write_har(output, args.nom, args.lat, args.lon, constituents, atlas_name)
-
-    # Calcul du Z0 pour affichage
-    from maree import Maree
-
-    m = Maree.from_har(output)
-    print(f"\nFichier sauvegardé : {output}")
-    print(f"  {len(constituents)} constituants")
-    print(f"  Z0 = {m.z0:.4f} m (calculé automatiquement, LAT 18.6 ans)")
+    print(f"Atlas: {atlas_dir.name}")
+    print(f"Point utilisé: ({point.lat:.6f}, {point.lon:.6f})")
+    print(f"Constituants extraits: {len(constituents)}")
+    print(f"Z0: {z0:.4f} m")
+    print(f"Fichier HAR généré: {output_path}")
 
 
 if __name__ == "__main__":

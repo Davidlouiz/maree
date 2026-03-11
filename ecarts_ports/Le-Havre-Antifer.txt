@@ -1,0 +1,7 @@
+port_id=18
+nom=Le Havre-Antifer
+seuil_m=0.200
+ecart_moyen_m=0.1991
+ecart_max_m=0.3114
+n_points=27
+depasse_seuil=non

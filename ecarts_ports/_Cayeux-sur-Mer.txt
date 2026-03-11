@@ -1,0 +1,7 @@
+port_id=11
+nom=Cayeux-sur-Mer
+seuil_m=0.200
+ecart_moyen_m=0.8673
+ecart_max_m=1.2172
+n_points=27
+depasse_seuil=oui

@@ -38,7 +38,12 @@ from carte_marees import (
     extract_har_metadata,
     scan_har_files,
 )
-from genere_har import extract_constituents, find_best_atlas, write_har
+from genere_har import extract_constituents, find_best_atlas, move_grid_point, write_har
+from genere_tous_ports import (
+    PORTS as ALL_PORTS,
+    fetch_maree_info,
+    fetch_maree_info_courbe,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -63,12 +68,19 @@ def safe_filename(nom: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _build_ports_maree_info_json() -> str:
+    """Construit le mapping nom → maree_info_id pour le JS."""
+    mapping = {nom: port_id for port_id, nom, _lat, _lon in ALL_PORTS}
+    return json.dumps(mapping, ensure_ascii=False, separators=(",", ":"))
+
+
 def generate_editor_html(har_dir: str) -> str:
     """Génère le HTML de l'éditeur de marées."""
     har_files = scan_har_files(har_dir)
     utide_json = export_utide_json()
     shom_json, extra_json = export_mappings_json()
     har_files_json = json.dumps(har_files, ensure_ascii=False, separators=(",", ":"))
+    ports_mi_json = _build_ports_maree_info_json()
 
     return (
         EDITOR_HTML_TEMPLATE.replace("__UTIDE_JSON__", utide_json)
@@ -76,6 +88,7 @@ def generate_editor_html(har_dir: str) -> str:
         .replace("__EXTRA_JSON__", extra_json)
         .replace("__HAR_DIR__", har_dir)
         .replace("__HAR_FILES_JSON__", har_files_json)
+        .replace("__PORTS_MAREE_INFO_JSON__", ports_mi_json)
     )
 
 
@@ -121,6 +134,14 @@ class EditorHandler(SimpleHTTPRequestHandler):
                 self._send_error(500, str(e))
             return
 
+        if path == "/api/maree_info":
+            self._handle_maree_info(parsed)
+            return
+
+        if path == "/api/maree_info_courbe":
+            self._handle_maree_info_courbe(parsed)
+            return
+
         # Servir les fichiers statiques normalement
         super().do_GET()
 
@@ -133,6 +154,14 @@ class EditorHandler(SimpleHTTPRequestHandler):
 
         if parsed.path == "/api/delete_har":
             self._handle_delete_har()
+            return
+
+        if parsed.path == "/api/move_grid":
+            self._handle_move_grid()
+            return
+
+        if parsed.path == "/api/relocate_har":
+            self._handle_relocate_har()
             return
 
         self._send_error(404, "Endpoint inconnu")
@@ -224,6 +253,173 @@ class EditorHandler(SimpleHTTPRequestHandler):
 
         except Exception as e:
             traceback.print_exc()
+            self._send_json(500, {"error": str(e)})
+
+    def _handle_relocate_har(self):
+        """Déplace un port à de nouvelles coordonnées et régénère le HAR."""
+        try:
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len)
+            data = json.loads(body.decode("utf-8"))
+
+            filename = str(data.get("filename", "")).strip()
+            lat = float(data.get("lat", 0))
+            lon = float(data.get("lon", 0))
+            nom = str(data.get("nom", "")).strip()
+
+            if not filename:
+                self._send_json(400, {"error": "filename requis"})
+                return
+
+            har_dir_path = Path(self.har_dir).resolve()
+            filepath = (har_dir_path / filename).resolve()
+            if filepath.parent != har_dir_path or not filepath.exists():
+                self._send_json(404, {"error": f"Fichier introuvable: {filename}"})
+                return
+
+            meta = extract_har_metadata(filepath)
+            port_nom = nom or meta["nom"]
+
+            print(f"[API] Relocalisation '{port_nom}' vers ({lat:.6f}, {lon:.6f})...")
+
+            atlas_dir = find_best_atlas(self.atlas_base, lat, lon)
+            constituents, atlas_name, actual_lat, actual_lon = extract_constituents(
+                atlas_dir, lat, lon
+            )
+            print(
+                f"  \u2192 Point oc\u00e9anique : ({actual_lat:.6f}, {actual_lon:.6f}), {len(constituents)} constituants"
+            )
+
+            write_har(
+                str(filepath),
+                port_nom,
+                actual_lat,
+                actual_lon,
+                constituents,
+                atlas_name,
+            )
+            print(f"  \u2192 Fichier r\u00e9\u00e9crit : {filepath}")
+
+            new_meta = extract_har_metadata(filepath)
+
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "filename": filename,
+                    "nom": new_meta["nom"],
+                    "lat": new_meta["lat"],
+                    "lon": new_meta["lon"],
+                    "z0": new_meta["z0"],
+                },
+            )
+
+        except ValueError as e:
+            self._send_json(400, {"error": str(e)})
+        except Exception as e:
+            traceback.print_exc()
+            self._send_json(500, {"error": str(e)})
+
+    def _handle_move_grid(self):
+        """D\u00e9place un port d'une case sur la grille atlas et r\u00e9g\u00e9n\u00e8re le HAR."""
+        try:
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len)
+            data = json.loads(body.decode("utf-8"))
+
+            filename = str(data.get("filename", "")).strip()
+            direction = str(data.get("direction", "")).strip().upper()
+            nom = str(data.get("nom", "")).strip()
+
+            if not filename or not direction or direction not in ("N", "S", "E", "O"):
+                self._send_json(
+                    400, {"error": "filename et direction (N/S/E/O) requis"}
+                )
+                return
+
+            har_dir_path = Path(self.har_dir).resolve()
+            filepath = (har_dir_path / filename).resolve()
+            if filepath.parent != har_dir_path or not filepath.exists():
+                self._send_json(404, {"error": f"Fichier introuvable: {filename}"})
+                return
+
+            # Lire les coordonnées actuelles du HAR
+            meta = extract_har_metadata(filepath)
+            current_lat = meta["lat"]
+            current_lon = meta["lon"]
+            port_nom = nom or meta["nom"]
+
+            print(
+                f"[API] Déplacement {direction} pour '{port_nom}' depuis ({current_lat:.6f}, {current_lon:.6f})..."
+            )
+
+            # Déplacer d'une case
+            constituents, atlas_name, new_lat, new_lon = move_grid_point(
+                self.atlas_base, current_lat, current_lon, direction
+            )
+            print(
+                f"  → Nouveau point : ({new_lat:.6f}, {new_lon:.6f}), {len(constituents)} constituants"
+            )
+
+            # Réécrire le fichier HAR
+            write_har(
+                str(filepath), port_nom, new_lat, new_lon, constituents, atlas_name
+            )
+            print(f"  → Fichier réécrit : {filepath}")
+
+            # Relire les métadonnées
+            new_meta = extract_har_metadata(filepath)
+
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "filename": filename,
+                    "nom": new_meta["nom"],
+                    "lat": new_meta["lat"],
+                    "lon": new_meta["lon"],
+                    "z0": new_meta["z0"],
+                },
+            )
+
+        except ValueError as e:
+            self._send_json(400, {"error": str(e)})
+        except Exception as e:
+            traceback.print_exc()
+            self._send_json(500, {"error": str(e)})
+
+    def _handle_maree_info(self, parsed):
+        """Proxy vers maree.info pour éviter les problèmes CORS."""
+        try:
+            qs = parse_qs(parsed.query)
+            port_id = int(qs.get("port_id", [0])[0])
+            if not port_id:
+                self._send_json(400, {"error": "port_id requis"})
+                return
+            data = fetch_maree_info(port_id)
+            if data is None:
+                self._send_json(502, {"error": "Impossible de contacter maree.info"})
+                return
+            self._send_json(200, data)
+        except Exception as e:
+            self._send_json(500, {"error": str(e)})
+
+    def _handle_maree_info_courbe(self, parsed):
+        """Proxy vers maree.info — hauteurs heure par heure (24 pts/jour)."""
+        try:
+            qs = parse_qs(parsed.query)
+            port_id = int(qs.get("port_id", [0])[0])
+            if not port_id:
+                self._send_json(400, {"error": "port_id requis"})
+                return
+            data = fetch_maree_info_courbe(port_id)
+            if data is None:
+                self._send_json(502, {"error": "Impossible de contacter maree.info"})
+                return
+            # Convertir les clés int du dict hourly en string pour JSON
+            hourly_str = {str(k): v for k, v in data["hourly"].items()}
+            self._send_json(200, {"dates": data["dates"], "hourly": hourly_str})
+        except Exception as e:
             self._send_json(500, {"error": str(e)})
 
     def _send_json(self, code, obj):
@@ -385,6 +581,30 @@ EDITOR_HTML_TEMPLATE = r"""<!DOCTYPE html>
   .modal .btn-ok:disabled { background: #93c5fd; cursor: not-allowed; }
   .modal .status { font-size: 12px; color: #666; margin-top: 8px; min-height: 18px; }
   .modal .status.error { color: #c00; }
+
+  /* Boutons grille N/S/O/E */
+  .grid-nav {
+    display: none; margin: 6px 0 4px;
+  }
+  .grid-nav .grid-btns {
+    display: inline-grid;
+    grid-template-columns: 28px 28px 28px;
+    grid-template-rows: 28px 28px 28px;
+    gap: 2px;
+    vertical-align: middle;
+  }
+  .grid-nav .grid-btns button {
+    width: 28px; height: 28px; padding: 0;
+    border: 1px solid #2563eb; border-radius: 4px;
+    background: #eff6ff; color: #2563eb;
+    font-size: 13px; font-weight: 700; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .grid-nav .grid-btns button:hover { background: #dbeafe; }
+  .grid-nav .grid-btns button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .grid-nav .grid-btns .empty { border: none; background: none; cursor: default; }
+  .grid-nav .grid-lbl { font-size: 11px; color: #666; margin-left: 8px; vertical-align: middle; }
+  .grid-nav .grid-status { font-size: 11px; color: #c00; margin-top: 2px; min-height: 16px; }
 </style>
 </head>
 <body>
@@ -397,6 +617,21 @@ EDITOR_HTML_TEMPLATE = r"""<!DOCTYPE html>
   <h3 id="port-title"></h3>
   <div class="info" id="port-info"></div>
   <button id="delete-port-btn" class="danger-btn" onclick="deleteActivePort()">Supprimer ce port</button>
+  <div class="grid-nav" id="grid-nav">
+    <div class="grid-btns">
+      <button class="empty"></button>
+      <button onclick="moveGrid('N')" title="Nord">N</button>
+      <button class="empty"></button>
+      <button onclick="moveGrid('O')" title="Ouest">O</button>
+      <button class="empty"></button>
+      <button onclick="moveGrid('E')" title="Est">E</button>
+      <button class="empty"></button>
+      <button onclick="moveGrid('S')" title="Sud">S</button>
+      <button class="empty"></button>
+    </div>
+    <span class="grid-lbl">Déplacer sur la grille atlas</span>
+    <div class="grid-status" id="grid-status"></div>
+  </div>
   <div class="nav-bar">
     <button onclick="navigateDay(-1)">◀</button>
     <span class="date-label" id="date-lbl"></span>
@@ -404,6 +639,11 @@ EDITOR_HTML_TEMPLATE = r"""<!DOCTYPE html>
   </div>
   <div class="extremes-list" id="extremes"></div>
   <div class="chart-wrap"><canvas id="tide-chart"></canvas></div>
+  <div id="ref-section" style="display:none; margin-top:10px; border-top:1px solid #ddd; padding-top:8px;">
+    <div id="ref-header" style="font-size:13px; font-weight:600; color:#555; margin-bottom:4px;">Référence maree.info (SHOM)</div>
+    <div class="extremes-list" id="ref-extremes"></div>
+    <div class="chart-wrap"><canvas id="ref-chart"></canvas></div>
+  </div>
 </div>
 <div id="map"></div>
 
@@ -433,6 +673,7 @@ const EXTRA_CONSTITUENTS = __EXTRA_JSON__;
 
 const HAR_DIR = '__HAR_DIR__';
 let HAR_FILES = __HAR_FILES_JSON__;
+const PORTS_MAREE_INFO = __PORTS_MAREE_INFO_JSON__;
 
 const UTIDE_NAMES = UTIDE.c.map(c => c.n);
 const UTIDE_NAME_IDX = {};
@@ -753,8 +994,11 @@ function minutesToHHMM(m) {
 
 const PORT_CACHE = {};
 let activePort = null;
+let activePortIdx = -1;
 let activeDayOffset = 0;
 let activeChart = null;
+let refChart = null;
+let refCache = {};
 let map;
 let T0, T0_ORD;
 
@@ -855,13 +1099,19 @@ function rebuildMarkers() {
   const blueIcon  = makeIcon('#2563eb');
 
   HAR_FILES.forEach((hf, idx) => {
-    const icon = hf.filename.startsWith('-') ? blueIcon
-               : hf.buggy ? redIcon : greenIcon;
-    const marker = L.marker([hf.lat, hf.lon], { icon }).addTo(map);
+    const isNew = hf.filename.startsWith('-');
+    const icon = isNew ? blueIcon : hf.buggy ? redIcon : greenIcon;
+    const marker = L.marker([hf.lat, hf.lon], { icon, draggable: isNew }).addTo(map);
     marker.on('click', () => {
       if (addMode) return;
       selectPort(idx);
     });
+    if (isNew) {
+      marker.on('dragend', () => {
+        const ll = marker.getLatLng();
+        relocatePort(idx, ll.lat, ll.lng);
+      });
+    }
     allMarkers.push(marker);
   });
 }
@@ -1008,7 +1258,13 @@ async function selectPort(idx) {
   document.getElementById('port-title').innerHTML = meta.nom + buggyTag + newTag;
   document.getElementById('port-info').innerHTML = 'Chargement…';
   document.getElementById('extremes').innerHTML = '';
+  document.getElementById('grid-nav').style.display = isNew ? 'block' : 'none';
+  document.getElementById('grid-status').textContent = '';
   if (activeChart) { activeChart.destroy(); activeChart = null; }
+  if (refChart) { refChart.destroy(); refChart = null; }
+  document.getElementById('ref-section').style.display = 'none';
+
+  activePortIdx = idx;
 
   if (!PORT_CACHE[meta.filename]) {
     try {
@@ -1028,6 +1284,115 @@ async function selectPort(idx) {
   activePort = PORT_CACHE[meta.filename];
   activeDayOffset = 0;
   updateTidePanel();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DÉPLACEMENT GRILLE ATLAS
+// ═══════════════════════════════════════════════════════════════
+
+async function relocatePort(idx, lat, lon) {
+  const meta = HAR_FILES[idx];
+  if (!meta || !meta.filename.startsWith('-')) return;
+
+  const statusEl = document.getElementById('grid-status');
+  if (statusEl) {
+    statusEl.textContent = 'Recalcul des harmoniques\u2026';
+    statusEl.style.color = '#666';
+  }
+
+  try {
+    const resp = await fetch('/api/relocate_har', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filename: meta.filename,
+        lat: lat,
+        lon: lon,
+        nom: meta.nom,
+      }),
+    });
+
+    const result = await resp.json();
+    if (!resp.ok) throw new Error(result.error || 'Erreur serveur');
+
+    meta.lat = result.lat;
+    meta.lon = result.lon;
+    meta.z0 = result.z0;
+
+    delete PORT_CACHE[meta.filename];
+    refCache = {};
+
+    if (statusEl) {
+      statusEl.textContent = `\u2192 (${result.lat.toFixed(4)}, ${result.lon.toFixed(4)})`;
+      statusEl.style.color = '#2d8a4e';
+    }
+
+    rebuildMarkers();
+
+    if (activePortIdx === idx) {
+      await selectPort(idx);
+    }
+
+  } catch (e) {
+    if (statusEl) {
+      statusEl.textContent = e.message;
+      statusEl.style.color = '#c00';
+    }
+    // Remettre le marqueur à sa position d'origine
+    rebuildMarkers();
+  }
+}
+
+async function moveGrid(direction) {
+  if (!activePort || activePortIdx < 0) return;
+  const meta = HAR_FILES[activePortIdx];
+  if (!meta.filename.startsWith('-')) return;
+
+  const statusEl = document.getElementById('grid-status');
+  statusEl.textContent = 'Déplacement ' + direction + '…';
+  statusEl.style.color = '#666';
+
+  // Désactiver les boutons pendant le calcul
+  document.querySelectorAll('.grid-btns button:not(.empty)').forEach(b => b.disabled = true);
+
+  try {
+    const resp = await fetch('/api/move_grid', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filename: meta.filename,
+        direction: direction,
+        nom: meta.nom,
+      }),
+    });
+
+    const result = await resp.json();
+    if (!resp.ok) throw new Error(result.error || 'Erreur serveur');
+
+    // Mettre à jour les métadonnées du port
+    meta.lat = result.lat;
+    meta.lon = result.lon;
+    meta.z0 = result.z0;
+
+    // Invalider le cache pour forcer le rechargement
+    delete PORT_CACHE[meta.filename];
+    refCache = {};
+
+    statusEl.textContent = `→ (${result.lat.toFixed(4)}, ${result.lon.toFixed(4)})`;
+    statusEl.style.color = '#2d8a4e';
+
+    // Recharger le port
+    await selectPort(activePortIdx);
+
+    // Mettre à jour le marqueur sur la carte
+    rebuildMarkers();
+
+  } catch (e) {
+    statusEl.textContent = e.message;
+    statusEl.style.color = '#c00';
+  } finally {
+    document.querySelectorAll('.grid-btns button:not(.empty)').forEach(b => b.disabled = false);
+  }
 }
 
 async function deleteActivePort() {
@@ -1070,6 +1435,7 @@ function updateTidePanel() {
     ` &nbsp;|&nbsp; <a href="${harHref}" download="${activePort.filename}" title="Télécharger le fichier HAR">${activePort.filename}</a>`;
   document.getElementById('date-lbl').textContent = dateLabel(activeDayOffset);
   renderChart(activePort, activeDayOffset);
+  fetchAndRenderRef(activePort, activeDayOffset);
 }
 
 function navigateDay(delta) {
@@ -1080,8 +1446,295 @@ function navigateDay(delta) {
 function closePanel() {
   document.getElementById('tide-panel').style.display = 'none';
   if (activeChart) { activeChart.destroy(); activeChart = null; }
+  if (refChart) { refChart.destroy(); refChart = null; }
   activePort = null;
   setTimeout(() => map.invalidateSize(), 50);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RÉFÉRENCE MAREE.INFO
+// ═══════════════════════════════════════════════════════════════
+
+function findMareeInfoMatch(portNom) {
+  // Cherche directement dans le mapping
+  if (PORTS_MAREE_INFO[portNom]) return {id: PORTS_MAREE_INFO[portNom], nom: portNom};
+  // Fallback : recherche insensible à la casse
+  const lc = portNom.toLowerCase();
+  for (const [nom, id] of Object.entries(PORTS_MAREE_INFO)) {
+    if (nom.toLowerCase() === lc) return {id, nom};
+  }
+  return null;
+}
+
+async function fetchAndRenderRef(port, dayOffset) {
+  const refSection = document.getElementById('ref-section');
+  const refExtEl = document.getElementById('ref-extremes');
+  if (refChart) { refChart.destroy(); refChart = null; }
+
+  const match = findMareeInfoMatch(port.nom);
+  if (!match) {
+    refSection.style.display = 'none';
+    return;
+  }
+  const portId = match.id;
+
+  refSection.style.display = 'block';
+  document.getElementById('ref-header').textContent = 'Référence maree.info : ' + match.nom;
+  refExtEl.innerHTML = '<span style="color:#999; font-style:italic;">Chargement maree.info…</span>';
+
+  // Charger les PM/BM (cache "pm")
+  const cacheKeyPM = 'pm_' + portId;
+  let dataPM = refCache[cacheKeyPM];
+  if (!dataPM) {
+    try {
+      const resp = await fetch('/api/maree_info?port_id=' + portId);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      dataPM = await resp.json();
+      if (dataPM.error) throw new Error(dataPM.error);
+      refCache[cacheKeyPM] = dataPM;
+    } catch (e) {
+      refExtEl.innerHTML = '<span style="color:#c00;">Erreur : ' + e.message + '</span>';
+      return;
+    }
+  }
+
+  // Charger la courbe horaire (cache "hourly")
+  const cacheKeyCurve = 'curve_' + portId;
+  let dataCurve = refCache[cacheKeyCurve];
+  if (!dataCurve) {
+    try {
+      const resp = await fetch('/api/maree_info_courbe?port_id=' + portId);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      dataCurve = await resp.json();
+      if (dataCurve.error) throw new Error(dataCurve.error);
+      refCache[cacheKeyCurve] = dataCurve;
+    } catch (e) {
+      // Non bloquant : on continue sans la courbe
+      dataCurve = null;
+    }
+  }
+
+  // Filtrer les PM/BM du jour demandé
+  const targetDate = dateForOffset(dayOffset);
+  const ymd = targetDate.getFullYear() * 10000 +
+              (targetDate.getMonth() + 1) * 100 +
+              targetDate.getDate();
+
+  const dayTides = (dataPM.tides || []).filter(t => t[0] === ymd);
+
+  if (dayTides.length === 0) {
+    refExtEl.innerHTML = '<span style="color:#999;">Pas de données maree.info pour ce jour</span>';
+    const refCtx = document.getElementById('ref-chart');
+    if (refCtx) refCtx.style.display = 'none';
+    return;
+  }
+
+  // Afficher les extremes
+  const sorted = dayTides.slice().sort((a, b) => (a[1] * 60 + a[2]) - (b[1] * 60 + b[2]));
+  refExtEl.innerHTML = sorted.map(t => {
+    const cls = t[4] === 'PM' ? 'pm' : 'bm';
+    const hh = String(t[1]).padStart(2, '0');
+    const mm = String(t[2]).padStart(2, '0');
+    return `<span class="${cls}">${t[4]} ${hh}h${mm} — ${t[3].toFixed(2)} m</span>`;
+  }).join('');
+
+  // Dessiner le graphique de référence
+  renderRefChart(port, dayOffset, sorted);
+
+  // Extraire la courbe horaire du jour et l'ajouter au graphe principal
+  const hourlyPts = dataCurve && dataCurve.hourly && dataCurve.hourly[String(ymd)];
+  if (hourlyPts && hourlyPts.length > 0) {
+    addRefCurveToMainChart(hourlyPts);
+  }
+}
+
+function addRefCurveToMainChart(hourlyPts) {
+  // hourlyPts = [[heure, hauteur], ...] — 24 points (0h–23h)
+  if (!activeChart || !hourlyPts || hourlyPts.length < 2) return;
+
+  const curve = hourlyPts.map(pt => ({ x: pt[0] * 60, y: pt[1] }));
+
+  activeChart.data.datasets.push({
+    label: 'maree.info',
+    data: curve,
+    borderColor: '#e74c3c',
+    borderWidth: 2,
+    borderDash: [6, 4],
+    pointRadius: 2,
+    pointHitRadius: 8,
+    fill: false,
+    tension: 0.4,
+    order: -2,
+  });
+
+  // Recalculer les bornes Y
+  const allY = [];
+  for (const ds of activeChart.data.datasets) {
+    for (const pt of (ds.data || [])) {
+      if (pt && typeof pt.y === 'number') allY.push(pt.y);
+    }
+  }
+  if (allY.length) {
+    const hMin = Math.min(...allY);
+    const hMax = Math.max(...allY);
+    const hMargin = (hMax - hMin) * 0.1 || 0.5;
+    activeChart.options.scales.y.min = Math.floor((hMin - hMargin) * 10) / 10;
+    activeChart.options.scales.y.max = Math.ceil((hMax + hMargin) * 10) / 10;
+  }
+
+  // Légende : afficher maree.info
+  activeChart.options.plugins.legend.labels.filter = item =>
+    item.text !== 'Zéro' && item.text !== 'Maintenant' && item.text !== 'Niveau actuel';
+
+  // Tooltip pour maree.info
+  const origLabel = activeChart.options.plugins.tooltip.callbacks.label;
+  activeChart.options.plugins.tooltip.callbacks.label = ctx => {
+    if (ctx.dataset.label === 'maree.info')
+      return 'Réf : ' + ctx.parsed.y.toFixed(2) + ' m';
+    return origLabel ? origLabel(ctx) : ctx.parsed.y.toFixed(2) + ' m';
+  };
+
+  activeChart.update();
+}
+
+function renderRefChart(port, dayOffset, refTides) {
+  const ctx = document.getElementById('ref-chart');
+  if (!ctx) return;
+  ctx.style.display = 'block';
+  if (refChart) { refChart.destroy(); refChart = null; }
+
+  // Données du modèle (comme le graphe principal)
+  const { times, heights } = predict(port, dayOffset);
+  const modelData = times.map((t, i) => ({ x: t, y: heights[i] }));
+
+  // Points de référence maree.info
+  const refPoints = refTides.map(t => ({
+    x: t[1] * 60 + t[2],  // minutes depuis minuit
+    y: t[3],
+    type: t[4],
+  }));
+
+  const pmPoints = refPoints.filter(p => p.type === 'PM');
+  const bmPoints = refPoints.filter(p => p.type === 'BM');
+
+  // Calculer les bornes Y en incluant les deux séries
+  const allY = [...heights, ...refPoints.map(p => p.y)];
+  const hMin = Math.min(...allY);
+  const hMax = Math.max(...allY);
+  const hMargin = (hMax - hMin) * 0.1 || 0.5;
+  const yMin = Math.floor((hMin - hMargin) * 10) / 10;
+  const yMax = Math.ceil((hMax + hMargin) * 10) / 10;
+
+  refChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [
+        {
+          label: 'Modèle',
+          data: modelData,
+          borderColor: 'rgba(41,128,185,0.4)',
+          borderWidth: 1.5,
+          borderDash: [4, 4],
+          pointRadius: 0,
+          pointHitRadius: 0,
+          fill: false,
+          tension: 0.3,
+        },
+        {
+          label: 'PM maree.info',
+          data: pmPoints.map(p => ({ x: p.x, y: p.y })),
+          borderColor: '#d35400',
+          backgroundColor: '#d35400',
+          pointRadius: 8,
+          pointStyle: 'triangle',
+          showLine: false,
+          pointHitRadius: 12,
+        },
+        {
+          label: 'BM maree.info',
+          data: bmPoints.map(p => ({ x: p.x, y: p.y })),
+          borderColor: '#2980b9',
+          backgroundColor: '#2980b9',
+          pointRadius: 8,
+          pointStyle: 'triangle',
+          rotation: 180,
+          showLine: false,
+          pointHitRadius: 12,
+        },
+        {
+          label: 'Zéro',
+          data: [{ x: 0, y: 0 }, { x: 1440, y: 0 }],
+          borderColor: '#aaa',
+          borderWidth: 1,
+          borderDash: [4, 4],
+          pointRadius: 0,
+          pointHitRadius: 0,
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      aspectRatio: 3 / 2,
+      animation: false,
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          labels: {
+            usePointStyle: true,
+            font: { size: 11 },
+            padding: 12,
+            filter: item => item.text !== 'Zéro',
+          },
+        },
+        tooltip: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false,
+          filter: item => item.dataset.label !== 'Zéro',
+          callbacks: {
+            title: items => {
+              if (!items.length) return '';
+              return minutesToHHMM(items[0].parsed.x);
+            },
+            label: ctx => {
+              if (ctx.dataset.label === 'PM maree.info')
+                return '▲ PM ref : ' + ctx.parsed.y.toFixed(2) + ' m';
+              if (ctx.dataset.label === 'BM maree.info')
+                return '▼ BM ref : ' + ctx.parsed.y.toFixed(2) + ' m';
+              return ctx.parsed.y.toFixed(2) + ' m';
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          type: 'linear',
+          min: 0,
+          max: 1440,
+          ticks: {
+            font: { size: 11 },
+            maxRotation: 0,
+            stepSize: 120,
+            callback: function(v) {
+              const h = Math.round(v / 60);
+              return String(h) + 'h';
+            },
+          },
+          grid: { color: 'rgba(0,0,0,0.06)' },
+        },
+        y: {
+          title: { display: true, text: 'Hauteur (m / ZC)', font: { size: 12 } },
+          ticks: { font: { size: 11 } },
+          grid: { color: 'rgba(0,0,0,0.06)' },
+          min: yMin,
+          max: yMax,
+        },
+      },
+    },
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════

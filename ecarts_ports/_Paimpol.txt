@@ -1,0 +1,7 @@
+port_id=62
+nom=Paimpol
+seuil_m=0.200
+ecart_moyen_m=3.4296
+ecart_max_m=4.3298
+n_points=26
+depasse_seuil=oui

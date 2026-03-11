@@ -1,0 +1,7 @@
+port_id=54
+nom=Saint-Cast
+seuil_m=0.200
+ecart_moyen_m=0.2198
+ecart_max_m=0.4952
+n_points=26
+depasse_seuil=oui

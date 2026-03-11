@@ -1,0 +1,7 @@
+port_id=57
+nom=Baie de Saint-Brieuc (Le Légué)
+seuil_m=0.200
+ecart_moyen_m=4.1162
+ecart_max_m=5.9709
+n_points=26
+depasse_seuil=oui

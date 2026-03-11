@@ -1,0 +1,7 @@
+port_id=84
+nom=Morgat
+seuil_m=0.200
+ecart_moyen_m=0.2748
+ecart_max_m=0.3277
+n_points=27
+depasse_seuil=oui

@@ -1,0 +1,7 @@
+port_id=63
+nom=Lézardrieux
+seuil_m=0.200
+ecart_moyen_m=3.4749
+ecart_max_m=4.8327
+n_points=26
+depasse_seuil=oui

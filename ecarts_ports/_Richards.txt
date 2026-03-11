@@ -1,0 +1,7 @@
+port_id=133
+nom=Richards
+seuil_m=0.200
+ecart_moyen_m=0.3631
+ecart_max_m=0.4873
+n_points=27
+depasse_seuil=oui

@@ -1,0 +1,7 @@
+port_id=8
+nom=Le Touquet
+seuil_m=0.200
+ecart_moyen_m=0.5466
+ecart_max_m=0.7934
+n_points=27
+depasse_seuil=oui

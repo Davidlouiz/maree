@@ -1,0 +1,7 @@
+port_id=87
+nom=Audierne
+seuil_m=0.200
+ecart_moyen_m=0.1781
+ecart_max_m=0.2515
+n_points=27
+depasse_seuil=non

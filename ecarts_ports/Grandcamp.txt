@@ -1,0 +1,7 @@
+port_id=29
+nom=Grandcamp
+seuil_m=0.200
+ecart_moyen_m=0.1143
+ecart_max_m=0.3239
+n_points=27
+depasse_seuil=non

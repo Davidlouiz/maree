@@ -1,0 +1,7 @@
+port_id=114
+nom=Le Croisic
+seuil_m=0.200
+ecart_moyen_m=1.3622
+ecart_max_m=1.7297
+n_points=27
+depasse_seuil=oui

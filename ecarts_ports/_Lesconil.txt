@@ -1,0 +1,7 @@
+port_id=90
+nom=Lesconil
+seuil_m=0.200
+ecart_moyen_m=0.2347
+ecart_max_m=0.3034
+n_points=27
+depasse_seuil=oui

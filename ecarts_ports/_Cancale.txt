@@ -1,0 +1,7 @@
+port_id=48
+nom=Cancale
+seuil_m=0.200
+ecart_moyen_m=0.2778
+ecart_max_m=0.6478
+n_points=26
+depasse_seuil=oui

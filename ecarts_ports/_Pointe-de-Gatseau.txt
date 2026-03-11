@@ -1,0 +1,7 @@
+port_id=129
+nom=Pointe de Gatseau
+seuil_m=0.200
+ecart_moyen_m=0.3225
+ecart_max_m=0.5212
+n_points=27
+depasse_seuil=oui

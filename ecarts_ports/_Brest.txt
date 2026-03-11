@@ -1,0 +1,7 @@
+port_id=82
+nom=Brest
+seuil_m=0.200
+ecart_moyen_m=0.2627
+ecart_max_m=0.4156
+n_points=27
+depasse_seuil=oui

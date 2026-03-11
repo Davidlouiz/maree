@@ -1,0 +1,7 @@
+port_id=150
+nom=Baie de Somme (Le Crotoy)
+seuil_m=0.200
+ecart_moyen_m=3.7742
+ecart_max_m=6.0555
+n_points=27
+depasse_seuil=oui

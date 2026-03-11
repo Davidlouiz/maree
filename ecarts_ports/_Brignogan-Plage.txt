@@ -1,0 +1,7 @@
+port_id=73
+nom=Brignogan-Plage
+seuil_m=0.200
+ecart_moyen_m=0.2536
+ecart_max_m=0.3977
+n_points=27
+depasse_seuil=oui

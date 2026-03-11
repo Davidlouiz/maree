@@ -231,6 +231,25 @@ def safe_filename(nom: str) -> str:
     return s
 
 
+def har_filenames_for_port(nom: str) -> tuple[str, str]:
+    """Retourne (nom_normal, nom_prefixe) pour un port."""
+    base = safe_filename(nom) + ".har"
+    return base, "_" + base
+
+
+def find_existing_har(nom: str, har_dir: str) -> tuple[str, str] | None:
+    """Trouve le HAR d'un port (normal ou préfixé)."""
+    normal, prefixed = har_filenames_for_port(nom)
+    normal_path = os.path.join(har_dir, normal)
+    prefixed_path = os.path.join(har_dir, prefixed)
+
+    if os.path.exists(normal_path):
+        return normal, normal_path
+    if os.path.exists(prefixed_path):
+        return prefixed, prefixed_path
+    return None
+
+
 def fetch_maree_info(port_id: int, max_retries: int = 3):
     """
     Récupère les données de marée depuis maree.info pour une semaine.
@@ -343,6 +362,96 @@ def fetch_maree_info(port_id: int, max_retries: int = 3):
     return result
 
 
+def fetch_maree_info_courbe(port_id: int, max_retries: int = 3):
+    """
+    Récupère les hauteurs heure par heure depuis maree.info pour une semaine.
+
+    Utilise l'endpoint AJAX ``/do/load-maree-jour-hauteurs.php`` qui retourne
+    24 valeurs (0h–23h) pour chaque jour.
+
+    Parameters
+    ----------
+    port_id : int
+        Identifiant maree.info du port (ex: 82 pour Brest).
+    max_retries : int
+        Nombre de tentatives réseau.
+
+    Returns
+    -------
+    dict avec :
+      - 'dates' : liste de YYYYMMDD (int)
+      - 'hourly' : dict { YYYYMMDD : [(heure_int, hauteur_float), ...] }
+    ou None si échec réseau.
+    """
+    import http.cookiejar
+
+    cj = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+    opener.addheaders = [
+        ("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
+    ]
+
+    # 1) Charger la page principale pour obtenir la session + les dates
+    for attempt in range(max_retries):
+        try:
+            resp = opener.open(f"https://maree.info/{port_id}", timeout=15)
+            html = resp.read().decode("utf-8", errors="replace")
+            break
+        except Exception:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+            else:
+                return None
+
+    # Extraire la liste de dates
+    m_dates = re.search(r"'Dates'\s*:\s*\[([\d,]+)\]", html)
+    if not m_dates:
+        return None
+    dates = [int(d) for d in m_dates.group(1).split(",")]
+
+    result = {"dates": dates, "hourly": {}}
+
+    # 2) Pour chaque jour, charger les hauteurs heure par heure
+    for j, date_ymd in enumerate(dates):
+        url = (
+            f"https://maree.info/do/load-maree-jour-hauteurs.php"
+            f"?p={port_id}&d={dates[0]}&j={j}"
+        )
+        for attempt in range(max_retries):
+            try:
+                resp = opener.open(url, timeout=15)
+                data = resp.read().decode("utf-8", errors="replace")
+                break
+            except Exception:
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                else:
+                    data = ""
+
+        if not data:
+            continue
+
+        # Parser les hauteurs depuis le JS injecté
+        # Les guillemets sont échappées (\") dans la string JS
+        # Format: id=\"Hauteurs_J_Hxx_HT\" class=\"HT\">X,XX</td>
+        #     ou: id=\"Hauteurs_J_Hxx_HT\" class=\"HT\"><b>X,XX</b></td>
+        hourly = []
+        for m in re.finditer(
+            r'Hauteurs_\d+_H(\d+)_HT\\?"'
+            r"[^>]*>(?:<b>)?(\d+,\d+)(?:</b>)?</td>",
+            data,
+        ):
+            heure = int(m.group(1))
+            hauteur = float(m.group(2).replace(",", "."))
+            hourly.append((heure, hauteur))
+
+        # Trier par heure
+        hourly.sort(key=lambda x: x[0])
+        result["hourly"][date_ymd] = hourly
+
+    return result
+
+
 def genere_port(port_id, nom, lat, lon, output_dir, atlas_base, verbose=True):
     """
     Génère le fichier .har pour un port.
@@ -360,7 +469,7 @@ def genere_port(port_id, nom, lat, lon, output_dir, atlas_base, verbose=True):
         constituents, atlas_used, actual_lat, actual_lon = extract_constituents(
             atlas_dir, lat, lon
         )
-        write_har(fpath, nom, lat, lon, constituents, atlas_used)
+        write_har(fpath, nom, actual_lat, actual_lon, constituents, atlas_used)
         n_const = len(constituents)
 
         if verbose:
@@ -385,8 +494,12 @@ def valide_port(port_id, nom, lat, lon, har_dir, atlas_base, ref_data=None):
     -------
     dict avec les résultats de validation.
     """
-    fname = safe_filename(nom) + ".har"
-    fpath = os.path.join(har_dir, fname)
+    har_match = find_existing_har(nom, har_dir)
+    if har_match is None:
+        fname = safe_filename(nom) + ".har"
+        fpath = os.path.join(har_dir, fname)
+    else:
+        fname, fpath = har_match
 
     result = {
         "port_id": port_id,
@@ -458,6 +571,54 @@ def valide_port(port_id, nom, lat, lon, har_dir, atlas_base, ref_data=None):
         result["error"] = str(e)
 
     return result
+
+
+def appliquer_prefix_har(resultats_val, har_dir, seuil_ecart_m=0.20):
+    """Préfixe les HAR avec '_' si écart moyen > seuil, sinon retire le préfixe."""
+    renamed = 0
+    already_ok = 0
+    missing = 0
+
+    for r in resultats_val:
+        base, prefixed = har_filenames_for_port(r["nom"])
+        base_path = Path(har_dir) / base
+        prefixed_path = Path(har_dir) / prefixed
+
+        exists_base = base_path.exists()
+        exists_pref = prefixed_path.exists()
+        if not exists_base and not exists_pref:
+            missing += 1
+            continue
+
+        has_metrics = (
+            r.get("success")
+            and r.get("ecart_moyen") is not None
+            and r.get("ecart_max") is not None
+        )
+        must_prefix = bool(has_metrics and r["ecart_moyen"] > seuil_ecart_m)
+
+        if must_prefix:
+            if exists_pref:
+                already_ok += 1
+                if exists_base:
+                    base_path.unlink()
+                continue
+            if exists_base:
+                base_path.rename(prefixed_path)
+                renamed += 1
+                continue
+        else:
+            if exists_base:
+                already_ok += 1
+                if exists_pref:
+                    prefixed_path.unlink()
+                continue
+            if exists_pref:
+                prefixed_path.rename(base_path)
+                renamed += 1
+                continue
+
+    return renamed, already_ok, missing
 
 
 def ecrire_rapport(resultats_gen, resultats_val, filepath):
@@ -604,6 +765,57 @@ def ecrire_rapport(resultats_gen, resultats_val, filepath):
         f.write("=" * 90 + "\n")
 
 
+def ecrire_fichiers_ecarts(resultats_val, output_dir, seuil_ecart_m=0.20):
+    """Écrit un fichier texte par port avec les métriques d'écart.
+
+    Les ports dont l'écart moyen dépasse ``seuil_ecart_m`` sont préfixés
+    par ``_`` dans le nom de fichier.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    for p in Path(output_dir).glob("*.txt"):
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
+    n_written = 0
+    n_flagged = 0
+    for r in resultats_val:
+        base = safe_filename(r["nom"])
+        has_metrics = (
+            r.get("success")
+            and r.get("ecart_moyen") is not None
+            and r.get("ecart_max") is not None
+        )
+        flagged = bool(has_metrics and r["ecart_moyen"] > seuil_ecart_m)
+        if flagged:
+            n_flagged += 1
+
+        out_name = f"{'_' if flagged else ''}{base}.txt"
+        out_path = Path(output_dir) / out_name
+
+        with out_path.open("w", encoding="utf-8") as f:
+            f.write(f"port_id={r['port_id']}\n")
+            f.write(f"nom={r['nom']}\n")
+            f.write(f"seuil_m={seuil_ecart_m:.3f}\n")
+            if has_metrics:
+                f.write(f"ecart_moyen_m={r['ecart_moyen']:.4f}\n")
+                f.write(f"ecart_max_m={r['ecart_max']:.4f}\n")
+                f.write(f"n_points={len(r['comparisons'])}\n")
+                f.write(f"depasse_seuil={'oui' if flagged else 'non'}\n")
+            else:
+                f.write("ecart_moyen_m=NA\n")
+                f.write("ecart_max_m=NA\n")
+                f.write("n_points=0\n")
+                f.write("depasse_seuil=non\n")
+                f.write(f"error={r.get('error', '')}\n")
+
+        n_written += 1
+
+    return n_written, n_flagged
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Programme principal
 # ─────────────────────────────────────────────────────────────────────────────
@@ -643,6 +855,17 @@ def main():
         "--no-fetch",
         action="store_true",
         help="Ne pas récupérer les données maree.info (prédictions seules)",
+    )
+    parser.add_argument(
+        "--ecarts-dir",
+        default="ecarts_ports",
+        help="Répertoire de sortie des fichiers d'écarts par port",
+    )
+    parser.add_argument(
+        "--seuil-ecart",
+        type=float,
+        default=0.20,
+        help="Seuil d'écart moyen (m) pour préfixer '_' (défaut: 0.20)",
     )
     args = parser.parse_args()
 
@@ -699,9 +922,13 @@ def main():
     else:
         # Charger les infos depuis les fichiers existants
         for port_id, nom, lat, lon in ports:
-            fname = safe_filename(nom) + ".har"
-            fpath = os.path.join(args.output_dir, fname)
-            exists = os.path.exists(fpath)
+            har_match = find_existing_har(nom, args.output_dir)
+            if har_match is None:
+                fname = safe_filename(nom) + ".har"
+                exists = False
+            else:
+                fname, _ = har_match
+                exists = True
             resultats_gen.append(
                 {
                     "port_id": port_id,
@@ -725,10 +952,8 @@ def main():
         t_start = time.time()
 
         for i, (port_id, nom, lat, lon) in enumerate(ports):
-            fname = safe_filename(nom) + ".har"
-            fpath = os.path.join(args.output_dir, fname)
-
-            if not os.path.exists(fpath):
+            har_match = find_existing_har(nom, args.output_dir)
+            if har_match is None:
                 print(f"  SKIP {nom:<40s}  (fichier manquant)")
                 resultats_val.append(
                     {
@@ -792,9 +1017,31 @@ def main():
         n_val = sum(1 for r in resultats_val if r["success"] and r["comparisons"])
         print(f"\n  → {n_val}/{len(ports)} ports validés en {elapsed:.0f}s\n")
 
+    if resultats_val:
+        renamed, already_ok, missing = appliquer_prefix_har(
+            resultats_val,
+            har_dir=args.output_dir,
+            seuil_ecart_m=args.seuil_ecart,
+        )
+        print(
+            f"  HAR renommés selon seuil: {renamed} "
+            f"(déjà conformes: {already_ok}, manquants: {missing})"
+        )
+
     # ── Phase 3 : Rapport ──
     print(f"── Écriture du rapport : {args.rapport} ──\n")
     ecrire_rapport(resultats_gen, resultats_val, args.rapport)
+
+    if resultats_val:
+        n_written, n_flagged = ecrire_fichiers_ecarts(
+            resultats_val,
+            output_dir=args.ecarts_dir,
+            seuil_ecart_m=args.seuil_ecart,
+        )
+        print(
+            f"  Fichiers écarts: {args.ecarts_dir}/ "
+            f"({n_written} fichiers, {n_flagged} préfixés '_')"
+        )
 
     # Résumé final
     if resultats_val:
