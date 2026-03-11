@@ -1,0 +1,158 @@
+==========================================================================================
+  RAPPORT DE GÉNÉRATION ET VALIDATION DES FICHIERS HARMONIQUES
+  Date : 2026-03-11 03:41
+  Référence : maree.info (données SHOM)
+==========================================================================================
+
+──────────────────────────────────────────────────────────────────────────────────────────
+  RÉSUMÉ DE GÉNÉRATION
+──────────────────────────────────────────────────────────────────────────────────────────
+  Ports traités : 137
+  Succès : 137
+  Erreurs : 0
+
+──────────────────────────────────────────────────────────────────────────────────────────
+  Port                                           Lat       Lon  Const         Atlas  Fichier                       
+──────────────────────────────────────────────────────────────────────────────────────────
+  Dunkerque                                   51.039     2.218     37       V1_MANE  Dunkerque.har                 
+  Gravelines                                  50.998     1.954     37      V0_MANGA  Gravelines.har                
+  Calais                                      50.938     1.722     37       V1_MANE  Calais.har                    
+  Wissant                                     50.755     1.591     37       V1_MANE  Wissant.har                   
+  Boulogne-sur-Mer                            50.586     1.567     37       V1_MANE  Boulogne-sur-Mer.har          
+  Le Touquet                                  50.371     1.558     37      V0_ATLNE  Le-Touquet.har                
+  Berck Plage - Fort Mahon                    50.205     1.486     37       V1_MANE  Berck-Plage-Fort-Mahon.har    
+  Baie de Somme (Le Crotoy)                   50.205     1.486     37       V1_MANE  Baie-de-Somme-Le-Crotoy.har   
+  Cayeux-sur-Mer                              50.205     1.486     37       V1_MANE  Cayeux-sur-Mer.har            
+  Le Tréport                                  50.171     1.469     37       V1_MANE  Le-Treport.har                
+  Dieppe                                      50.000     1.216     37       V1_MANE  Dieppe.har                    
+  Saint-Valery-en-Caux                        49.903     0.862     37       V1_MANE  Saint-Valery-en-Caux.har      
+  Fécamp                                      49.824     0.505     37       V1_MANE  Fecamp.har                    
+  Etretat                                     49.761     0.343     37       V1_MANE  Etretat.har                   
+  Le Havre-Antifer                            49.743     0.279     37       V1_MANE  Le-Havre-Antifer.har          
+  Le Havre                                    49.425     0.158     37       V1_MANE  Le-Havre.har                  
+  Honfleur                                    49.445     0.380     37       V1_MANE  Honfleur.har                  
+  Trouville / Deauville                       49.425     0.158     37       V1_MANE  Trouville-Deauville.har       
+  Dives-sur-Mer                               49.350     0.033     37       V1_MANE  Dives-sur-Mer.har             
+  Ouistreham                                  49.310    -0.108     37      V0_MANGA  Ouistreham.har                
+  Courseulles-sur-Mer                         49.321    -0.318     37       V1_MANE  Courseulles-sur-Mer.har       
+  Arromanches-Les-Bains                       49.350    -0.503     37       V1_MANW  Arromanches-Les-Bains.har     
+  Port-en-Bessin                              49.364    -0.601     37       V1_MANE  Port-en-Bessin.har            
+  Grandcamp                                   49.386    -0.901     37       V1_MANW  Grandcamp.har                 
+  Iles Saint-Marcouf                          49.404    -1.019     37       V1_MANW  Iles-Saint-Marcouf.har        
+  Saint-Vaast-La-Hougue                       49.454    -1.240     37      V0_ATLNE  Saint-Vaast-La-Hougue.har     
+  Barfleur                                    49.519    -1.248     37       V1_MANW  Barfleur.har                  
+  Cherbourg                                   49.699    -1.500     37       V1_MANW  Cherbourg.har                 
+  Omonville-la-Rogue                          49.577    -1.851     37       V1_MANW  Omonville-la-Rogue.har        
+  Goury                                       49.609    -1.847     37       V1_MANW  Goury.har                     
+  Diélette                                    49.401    -1.847     37       V1_MANW  Dielette.har                  
+  Carteret                                    49.257    -1.682     37       V1_MANW  Carteret.har                  
+  Portbail                                    49.220    -1.652     37      V0_ATLNE  Portbail.har                  
+  Saint-Germain-sur-Ay                        49.076    -1.652     37      V0_ATLNE  Saint-Germain-sur-Ay.har      
+  Pointe d'Agon                               48.861    -1.593     37      V0_ATLNE  Pointe-dAgon.har              
+  Granville                                   48.699    -1.534     37       V1_MANW  Granville.har                 
+  Iles Chausey (Grande-Ile)                   48.753    -1.736     37       V1_MANW  Iles-Chausey-Grande-Ile.har   
+  Cancale                                     48.622    -1.709     37       V1_MANW  Cancale.har                   
+  Saint-Malo                                  48.638    -1.854     37       V1_MANW  Saint-Malo.har                
+  Ile des Hébihens                            48.683    -1.999     37       V1_MANW  Ile-des-Hebihens.har          
+  Saint-Cast                                  48.642    -2.110     37       V1_MANW  Saint-Cast.har                
+  Erquy                                       48.687    -2.332     37       V1_MANW  Erquy.har                     
+  Dahouet                                     48.656    -2.437     37       V1_MANW  Dahouet.har                   
+  Baie de Saint-Brieuc (Le Légué)             48.573    -2.595     37      V0_ATLNE  Baie-de-Saint-Brieuc-Le-Legue.har
+  Binic                                       48.554    -2.693     37       V1_MANW  Binic.har                     
+  Saint-Quay-Portrieux                        48.570    -2.720     37       V1_MANW  Saint-Quay-Portrieux.har      
+  Ile de Bréhat                               48.719    -2.929     37       V1_MANW  Ile-de-Brehat.har             
+  Les Héaux-de-Bréhat                         48.773    -2.989     37       V1_MANW  Les-Heaux-de-Brehat.har       
+  Paimpol                                     48.712    -2.919     37       V1_MANW  Paimpol.har                   
+  Lézardrieux                                 48.773    -2.989     37       V1_MANW  Lezardrieux.har               
+  Port-Béni                                   48.829    -3.053     37       V1_MANW  Port-Beni.har                 
+  Tréguier                                    48.816    -3.087     37       V1_MANW  Treguier.har                  
+  Perros-Guirec                               48.868    -3.293     37       V1_MANW  Perros-Guirec.har             
+  Ploumanac'h                                 48.856    -3.336     37       V1_MANW  Ploumanach.har                
+  Trébeurden                                  48.811    -3.424     37       V1_MANW  Trebeurden.har                
+  Locquemeau                                  48.825    -3.464     37       V1_MANW  Locquemeau.har                
+  Locquirec                                   48.809    -3.569     37       V1_MANW  Locquirec.har                 
+  Anse de Primel                              48.701    -3.670     37       V1_MANW  Anse-de-Primel.har            
+  Baie de Morlaix - Carantec                  48.710    -3.754     37       V1_MANW  Baie-de-Morlaix-Carantec.har  
+  Roscoff                                     48.640    -3.859     37       V1_MANW  Roscoff.har                   
+  Brignogan-Plage                             48.699    -4.193     37      V0_MANGA  Brignogan-Plage.har           
+  Aber Wrac'h                                 48.675    -4.446     37      V1_FINIS  Aber-Wrach.har                
+  L'Aber Benoît                               48.649    -4.467     37      V0_MANGA  LAber-Benoit.har              
+  Portsall                                    48.648    -4.574     37      V1_FINIS  Portsall.har                  
+  L'Aber Ildut - Lanildut                     48.578    -4.652     37      V1_FINIS  LAber-Ildut-Lanildut.har      
+  Ile d'Ouessant (Baie de Lampaul)            48.486    -4.985     37      V1_FINIS  Ile-dOuessant-Baie-de-Lampaul.har
+  Ile Molène                                  48.488    -4.847     37      V1_FINIS  Ile-Molene.har                
+  Le Conquet                                  48.515    -4.793     37      V1_FINIS  Le-Conquet.har                
+  Trez-Hir                                    48.396    -4.776     37      V1_FINIS  Trez-Hir.har                  
+  Brest                                       48.340    -4.358     37      V0_MANGA  Brest.har                     
+  Camaret-sur-Mer                             48.294    -4.453     37      V1_FINIS  Camaret-sur-Mer.har           
+  Morgat                                      48.287    -4.369     37      V1_FINIS  Morgat.har                    
+  Douarnenez                                  48.094    -4.308     37      V1_FINIS  Douarnenez.har                
+  Ile de Sein                                 48.182    -4.830     37      V1_FINIS  Ile-de-Sein.har               
+  Audierne                                    48.109    -4.416     37      V1_FINIS  Audierne.har                  
+  Penmarc'h / Saint Guénolé                   47.925    -4.485     37      V0_MANGA  Penmarch-Saint-Guenole.har    
+  Le Guilvinec                                47.837    -4.173     37      V1_FINIS  Le-Guilvinec.har              
+  Lesconil                                    47.858    -4.081     37     V1_SUDBZH  Lesconil.har                  
+  Loctudy                                     47.868    -4.111     37      V0_MANGA  Loctudy.har                   
+  Bénodet                                     47.889    -3.971     37      V1_FINIS  Benodet.har                   
+  Concarneau                                  47.891    -3.958     37      V1_FINIS  Concarneau.har                
+  Penfret (Iles de Glénan)                    47.877    -3.984     37      V1_FINIS  Penfret-Iles-de-Glenan.har    
+  Port Manec'h                                47.766    -3.588     37     V1_SUDBZH  Port-Manech.har               
+  Le Pouldu                                   47.693    -3.419     37      V0_ATLNE  Le-Pouldu.har                 
+  Lorient                                     47.721    -3.356     37     V1_SUDBZH  Lorient.har                   
+  Port-Louis (Locmalo)                        47.721    -3.356     37     V1_SUDBZH  Port-Louis-Locmalo.har        
+  Ile de Groix (Port-Tudy)                    47.721    -3.356     37     V1_SUDBZH  Ile-de-Groix-Port-Tudy.har    
+  Etel                                        47.565    -3.101     37     V1_SUDBZH  Etel.har                      
+  Quiberon (Port-Maria)                       47.565    -3.101     37     V1_SUDBZH  Quiberon-Port-Maria.har       
+  Belle-Ile (Le Palais)                       47.491    -3.108     37     V1_SUDBZH  Belle-Ile-Le-Palais.har       
+  Quiberon (Port-Haliguen)                    47.565    -3.101     37     V1_SUDBZH  Quiberon-Port-Haliguen.har    
+  La Trinité-sur-Mer                          47.541    -2.913     37     V1_SUDBZH  La-Trinite-sur-Mer.har        
+  Auray (St-Goustan)                          47.541    -2.913     37     V1_SUDBZH  Auray-St-Goustan.har          
+  Locmariaquer                                47.478    -2.816     37      V0_MANGA  Locmariaquer.har              
+  Arradon                                     47.502    -2.734     37     V1_SUDBZH  Arradon.har                   
+  Vannes                                      47.502    -2.734     37     V1_SUDBZH  Vannes.har                    
+  Saint-Armel (Le Passage)                    47.507    -2.555     37     V1_SUDBZH  Saint-Armel-Le-Passage.har    
+  Le Logeo                                    47.507    -2.655     37     V1_SUDBZH  Le-Logeo.har                  
+  Port-Navalo                                 47.541    -2.913     37     V1_SUDBZH  Port-Navalo.har               
+  Port du Crouesty                            47.541    -2.913     37     V1_SUDBZH  Port-du-Crouesty.har          
+  Pénerf                                      47.505    -2.486     37     V1_SUDBZH  Penerf.har                    
+  Tréhiguier                                  47.502    -2.473     37     V1_SUDBZH  Trehiguier.har                
+  Hoëdic                                      47.460    -2.787     37     V1_SUDBZH  Hoedic.har                    
+  Houat                                       47.527    -2.910     37     V1_SUDBZH  Houat.har                     
+  Le Croisic                                  47.424    -2.466     37     V1_SUDBZH  Le-Croisic.har                
+  Le Pouliguen                                47.233    -2.287     37     V1_SUDBZH  Le-Pouliguen.har              
+  Pornichet                                   47.266    -2.201     37     V1_SUDBZH  Pornichet.har                 
+  Saint-Nazaire                               47.300    -2.056     37     V1_SUDBZH  Saint-Nazaire.har             
+  Pointe de Saint-Gildas                      47.033    -2.122     37     V1_SUDBZH  Pointe-de-Saint-Gildas.har    
+  Pornic                                      46.990    -2.092     37     V1_SUDBZH  Pornic.har                    
+  Noirmoutier (L'Herbaudière)                 47.008    -2.152     37     V1_SUDBZH  Noirmoutier-LHerbaudiere.har  
+  Fromentine Bouée                            46.990    -2.092     37     V1_SUDBZH  Fromentine-Bouee.har          
+  Fromentine Port                             46.990    -2.092     37     V1_SUDBZH  Fromentine-Port.har           
+  Ile d'Yeu (Port-Joinville)                  46.860    -2.278     37      V0_MANGA  Ile-dYeu-Port-Joinville.har   
+  Saint-Gilles-Croix-de-Vie                   46.778    -2.078     37       V1_AQUI  Saint-Gilles-Croix-de-Vie.har 
+  Les Sables-d'Olonne                         46.416    -1.682     37      V0_ATLNE  Les-Sables-dOlonne.har        
+  Ile de Ré (Saint-Martin)                    46.219    -1.240     37      V0_ATLNE  Ile-de-Re-Saint-Martin.har    
+  La Rochelle-Pallice                         46.050    -1.125     37       V1_AQUI  La-Rochelle-Pallice.har       
+  Ile d'Aix                                   45.916    -1.175     37      V0_MANGA  Ile-dAix.har                  
+  Saint-Denis d'Oléron                        45.978    -1.229     37       V1_AQUI  Saint-Denis-dOleron.har       
+  Ile d'Oléron (La Cotinière)                 45.926    -1.185     37       V1_AQUI  Ile-dOleron-La-Cotiniere.har  
+  Pointe de Gatseau                           45.913    -1.181     37      V0_ATLNE  Pointe-de-Gatseau.har         
+  Cordouan                                    45.519    -1.056     37      V0_MANGA  Cordouan.har                  
+  Royan                                       45.486    -0.959     37       V1_AQUI  Royan.har                     
+  Pointe de Grave (Port-Bloc)                 45.484    -0.959     37       V1_AQUI  Pointe-de-Grave-Port-Bloc.har 
+  Richards                                    45.360    -0.814     37       V1_AQUI  Richards.har                  
+  Laména                                      45.084    -0.682     37      V0_MANGA  Lamena.har                    
+  Pauillac                                    45.090    -0.655     37      V0_MANGA  Pauillac.har                  
+  Bordeaux                                    45.078    -0.655     37      V0_MANGA  Bordeaux.har                  
+  Lacanau (Large)                             45.115    -1.306     37       V1_AQUI  Lacanau-Large.har             
+  Cap Ferret                                  44.781    -1.256     37       V1_AQUI  Cap-Ferret.har                
+  Arcachon (Jetée d'Eyrac)                    44.795    -1.246     37       V1_AQUI  Arcachon-Jetee-dEyrac.har     
+  Biscarrosse                                 44.508    -1.333     37       V1_AQUI  Biscarrosse.har               
+  Mimizan                                     44.281    -1.327     37       V1_AQUI  Mimizan.har                   
+  Vieux-Boucau                                43.918    -1.387     37      V0_ATLNE  Vieux-Boucau.har              
+  Boucau-Bayonne / Biarritz                   43.638    -1.448     37       V1_AQUI  Boucau-Bayonne-Biarritz.har   
+  Saint-Jean-de-Luz                           43.501    -1.573     37       V1_AQUI  Saint-Jean-de-Luz.har         
+
+
+==========================================================================================
+  Fin du rapport
+==========================================================================================

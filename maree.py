@@ -268,7 +268,10 @@ class Maree:
     """
 
     def __init__(
-        self, constituents: dict, name: str = "", lat: float = 48.0,
+        self,
+        constituents: dict,
+        name: str = "",
+        lat: float = 48.0,
         z0: Optional[float] = None,
     ):
         self.constituents = constituents
@@ -380,17 +383,17 @@ class Maree:
             t_ord = _datetime_to_ordinal(t_mid)
 
             F, U, V = FUV(
-                t_ord, t_ord, self._utide_indices, self.lat,
+                t_ord,
+                t_ord,
+                self._utide_indices,
+                self.lat,
                 ngflgs=[0, 0, 0, 0],
             )
             f = F.flatten()
             u = U.flatten() * 360.0
             v0 = V.flatten() * 360.0
 
-            hours = (
-                np.arange(n_pts) * (dt_min / 60.0)
-                - (chunk_size / 60.0 / 2.0)
-            )
+            hours = np.arange(n_pts) * (dt_min / 60.0) - (chunk_size / 60.0 / 2.0)
 
             phases_deg = (
                 (v0 + u)[np.newaxis, :]
@@ -398,8 +401,7 @@ class Maree:
                 - phase_g[np.newaxis, :]
             )
             h_osc = np.sum(
-                f[np.newaxis, :] * amp[np.newaxis, :]
-                * np.cos(np.deg2rad(phases_deg)),
+                f[np.newaxis, :] * amp[np.newaxis, :] * np.cos(np.deg2rad(phases_deg)),
                 axis=1,
             )
 
@@ -663,6 +665,7 @@ class Maree:
         constituents = {}
         name = fpath.stem
         lat = 48.0
+        z0_from_file = None
         section = None
 
         with open(fpath, "r", encoding="utf-8") as f:
@@ -698,7 +701,10 @@ class Maree:
                         elif key == "longitude":
                             pass  # informational
                         elif key == "z0":
-                            pass  # Z0 calcule automatiquement
+                            try:
+                                z0_from_file = float(val)
+                            except ValueError:
+                                pass
                 elif section == "constituants":
                     parts = line.split()
                     if len(parts) >= 3:
@@ -710,7 +716,7 @@ class Maree:
                         except ValueError:
                             continue
 
-        return cls(constituents=constituents, name=name, lat=lat)
+        return cls(constituents=constituents, name=name, lat=lat, z0=z0_from_file)
 
     @staticmethod
     def _correct_phases_tz(constituents: dict, tz_offset_h: float) -> dict:
@@ -744,7 +750,10 @@ class Maree:
 
     @classmethod
     def from_atlas(
-        cls, atlas_dir: str, lat: float, lon: float,
+        cls,
+        atlas_dir: str,
+        lat: float,
+        lon: float,
     ) -> "Maree":
         """
         Charge les constantes depuis les atlas NetCDF SHOM/MARC.
@@ -820,7 +829,10 @@ class Maree:
 
     @classmethod
     def from_atlas_auto(
-        cls, atlas_base_dir: str, lat: float, lon: float,
+        cls,
+        atlas_base_dir: str,
+        lat: float,
+        lon: float,
     ) -> "Maree":
         """
         Selectionne automatiquement le meilleur atlas (resolution la plus

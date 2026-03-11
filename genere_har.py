@@ -21,9 +21,33 @@ from pathlib import Path
 import numpy as np
 
 
-def extract_constituents(atlas_dir: str, lat: float, lon: float) -> tuple:
+def extract_constituents(
+    atlas_dir: str,
+    lat: float,
+    lon: float,
+    rayon_recherche: float = 0.15,
+) -> tuple:
     """
     Extrait les harmoniques (amplitude, phase Greenwich) depuis un atlas.
+
+    Stratégie de sélection du point atlas (best-M2) :
+
+    1. Chercher tous les points océaniques dans un rayon de
+       ``rayon_recherche``° autour de la position demandée.
+    2. Retenir le point ayant la plus grande amplitude M2.
+       Cela permet de s'affranchir des mailles d'estran (sable
+       découvrant à marée basse) dont le M2 est artificiellement faible.
+    3. Fallback : si aucun point dans le rayon, prendre le
+       plus proche voisin océanique.
+
+    Parameters
+    ----------
+    atlas_dir : str
+        Répertoire contenant les fichiers NetCDF de l'atlas.
+    lat, lon : float
+        Coordonnées du port souhaité (degrés).
+    rayon_recherche : float
+        Rayon de recherche (degrés). Par défaut 0.15° ≈ 12-17 km.
 
     Returns
     -------
@@ -39,7 +63,7 @@ def extract_constituents(atlas_dir: str, lat: float, lon: float) -> tuple:
     if not xe_files:
         raise FileNotFoundError(f"Aucun fichier *-XE-* dans {adir}")
 
-    # Index du plus proche voisin océanique via M2
+    # Lecture de la grille et de l'amplitude M2
     m2_file = next((f for f in xe_files if f.name.startswith("M2-")), xe_files[0])
     ds0 = netCDF4.Dataset(str(m2_file))
     grid_lat = ds0.variables["latitude"][:]
@@ -49,23 +73,33 @@ def extract_constituents(atlas_dir: str, lat: float, lon: float) -> tuple:
 
     dist = (grid_lat - lat) ** 2 + (grid_lon - lon) ** 2
     ocean_mask = ~np.ma.getmaskarray(amp0)
-    valid_dist = np.where(ocean_mask, dist, 1e10)
-    idx = np.unravel_index(np.argmin(valid_dist), valid_dist.shape)
+    amp0_data = np.ma.filled(amp0, 0.0)
 
-    if valid_dist[idx] > 1e9:
-        raise ValueError(f"Aucun point océanique près de ({lat:.3f}, {lon:.3f})")
+    # ── Stratégie best-M2 : max M2 dans le rayon ──
+    dist_lin = np.sqrt(dist)
+    mask_rayon = (dist_lin < rayon_recherche) & ocean_mask
+
+    if np.any(mask_rayon):
+        amp_in_rayon = np.where(mask_rayon, amp0_data, 0.0)
+        idx = np.unravel_index(np.argmax(amp_in_rayon), amp_in_rayon.shape)
+    else:
+        # Fallback : plus proche voisin océanique
+        valid_dist = np.where(ocean_mask, dist, 1e10)
+        idx = np.unravel_index(np.argmin(valid_dist), valid_dist.shape)
+        if valid_dist[idx] > 1e9:
+            raise ValueError(f"Aucun point océanique près de ({lat:.3f}, {lon:.3f})")
 
     actual_lat = float(grid_lat[idx])
     actual_lon = float(grid_lon[idx])
-    dist_deg = float(np.sqrt(valid_dist[idx]))
+    dist_deg = float(dist_lin[idx])
 
     if dist_deg > 0.1:
         warnings.warn(
-            f"Point océanique le plus proche à {dist_deg:.3f}° "
+            f"Point atlas retenu à {dist_deg:.3f}° "
             f"de ({lat:.3f}, {lon:.3f}) → ({actual_lat:.3f}, {actual_lon:.3f})"
         )
 
-    # Extraction de chaque constituant
+    # Extraction de chaque constituant au point sélectionné
     constituents = {}
     for f in xe_files:
         cname = f.name.split("-XE-")[0]
@@ -134,9 +168,15 @@ def write_har(
     constituents: dict,
     atlas_name: str,
 ):
-    """Écrit un fichier .har (sans Z0, calculé au chargement par maree.py)."""
+    """Écrit un fichier .har avec Z0 pré-calculé."""
+    from maree import Maree
+
     # Trier par amplitude décroissante
     sorted_const = sorted(constituents.items(), key=lambda x: -x[1][0])
+
+    # Calculer Z0 à partir des harmoniques
+    maree_obj = Maree(constituents=constituents, name=nom, lat=lat)
+    z0 = maree_obj.z0
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(f"# Fichier harmonique — {nom}\n")
@@ -148,12 +188,15 @@ def write_har(
             f"# Phases référencées à Greenwich (UTC), convention Doodson/Schureman\n"
         )
         f.write(f"# Amplitude en mètres, phase en degrés\n")
-        f.write(f"# Z0 calculé automatiquement (LAT sur 18.6 ans)\n")
+        f.write(
+            f"# Z0 = niveau moyen au-dessus du zéro des cartes (LAT sur 18.6 ans)\n"
+        )
         f.write(f"\n")
         f.write(f"[port]\n")
         f.write(f"nom       = {nom}\n")
         f.write(f"latitude  = {lat}\n")
         f.write(f"longitude = {lon}\n")
+        f.write(f"z0        = {z0:.4f}\n")
         f.write(f"\n")
         f.write(f"[constituants]\n")
         f.write(f"# {'nom':<12s} {'amplitude(m)':>12s}   {'phase(°)':>10s}\n")
@@ -213,6 +256,7 @@ def main():
 
     # Calcul du Z0 pour affichage
     from maree import Maree
+
     m = Maree.from_har(output)
     print(f"\nFichier sauvegardé : {output}")
     print(f"  {len(constituents)} constituants")

@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carte des marées — Ports de France</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  #map { width: 100vw; height: 100vh; }
+
+  .popup-content { width: 620px; max-width: 92vw; }
+  .popup-content h3 { margin: 0 0 2px 0; font-size: 17px; color: #333; }
+  .popup-content .info { font-size: 12px; color: #666; margin-bottom: 2px; }
+  .popup-content .buggy-tag { color: #c00; font-weight: bold; }
+  .popup-content .chart-wrap { position: relative; width: 600px; max-width: 90vw; height: 280px; }
+  .popup-content canvas { display: block; }
+  .leaflet-popup-content { margin: 10px 12px; min-width: 620px; }
+
+  .nav-bar {
+    display: flex; align-items: center; justify-content: center;
+    gap: 10px; margin: 4px 0 2px 0;
+  }
+  .nav-bar button {
+    border: none; background: #eee; border-radius: 4px;
+    padding: 3px 14px; font-size: 18px; cursor: pointer; line-height: 1;
+  }
+  .nav-bar button:hover { background: #ddd; }
+  .nav-bar .date-label {
+    font-size: 14px; font-weight: 600; min-width: 270px; text-align: center;
+  }
+
+  .extremes-list {
+    display: flex; flex-wrap: wrap; gap: 4px 14px;
+    font-size: 12px; margin-bottom: 4px; color: #444;
+  }
+  .extremes-list .pm { color: #d35400; font-weight: 600; }
+  .extremes-list .bm { color: #2980b9; font-weight: 600; }
+
+  .legend {
+    background: white; padding: 8px 12px; border-radius: 6px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3); font-size: 13px; line-height: 1.6;
+  }
+  .legend i {
+    display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+    margin-right: 6px; vertical-align: middle;
+  }
+  .legend .green { background: #2d8a4e; }
+  .legend .red { background: #c0392b; }
+
+  .loading-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255,255,255,0.85); z-index: 10000;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; font-family: inherit;
+  }
+  .loading-overlay .spinner {
+    width: 40px; height: 40px; border: 4px solid #ddd;
+    border-top-color: #2d8a4e; border-radius: 50%;
+    animation: spin 0.8s linear infinite; margin-bottom: 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-overlay .msg { font-size: 15px; color: #555; }
+</style>
+</head>
+<body>
+<div id="loading" class="loading-overlay">
+  <div class="spinner"></div>
+  <div class="msg" id="loading-msg">Chargement des fichiers harmoniques…</div>
+</div>
+<div id="map"></div>
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  CONSTANTES UTIDE (exportées depuis la bibliothèque Python utide)
+//  c[i] = {n:name, f:freq_cph, d:doodson[6], s?:semi, ns?:nshallow, is?:ishallow}
+//  s[i] = [iconst, deldood[3], phcorr, amprat, ilatfac]
+//  sh[i] = [iname, coef]
+// ═══════════════════════════════════════════════════════════════
+const UTIDE = {"c":[{"n":"Z0","f":0.0,"d":[0.0,0.0,0.0,0.0,0.0,0.0]},{"n":"SA","f":0.0001140741,"d":[0.0,0.0,1.0,0.0,0.0,-1.0]},{"n":"SSA","f":0.0002281591,"d":[0.0,0.0,2.0,0.0,0.0,0.0]},{"n":"MSM","f":0.0013097808,"d":[0.0,1.0,-2.0,1.0,0.0,0.0]},{"n":"MM","f":0.0015121518,"d":[0.0,1.0,0.0,-1.0,0.0,0.0]},{"n":"MSF","f":0.0028219327,"d":[0.0,2.0,-2.0,0.0,0.0,0.0]},{"n":"MF","f":0.0030500918,"d":[0.0,2.0,0.0,0.0,0.0,0.0]},{"n":"ALP1","f":0.0343965699,"d":[1.0,-4.0,2.0,1.0,0.0,0.0],"s":-0.25},{"n":"2Q1","f":0.0357063507,"d":[1.0,-3.0,0.0,2.0,0.0,0.0],"s":-0.25},{"n":"SIG1","f":0.0359087218,"d":[1.0,-3.0,2.0,0.0,0.0,0.0],"s":-0.25},{"n":"Q1","f":0.0372185026,"d":[1.0,-2.0,0.0,1.0,0.0,0.0],"s":-0.25},{"n":"RHO1","f":0.0374208736,"d":[1.0,-2.0,2.0,-1.0,0.0,0.0],"s":-0.25},{"n":"O1","f":0.0387306544,"d":[1.0,-1.0,0.0,0.0,0.0,0.0],"s":-0.25},{"n":"TAU1","f":0.0389588136,"d":[1.0,-1.0,2.0,0.0,0.0,0.0],"s":-0.75},{"n":"BET1","f":0.0400404353,"d":[1.0,0.0,-2.0,1.0,0.0,0.0],"s":-0.75},{"n":"NO1","f":0.0402685944,"d":[1.0,0.0,0.0,1.0,0.0,0.0],"s":-0.75},{"n":"CHI1","f":0.0404709654,"d":[1.0,0.0,2.0,-1.0,0.0,0.0],"s":-0.75},{"n":"PI1","f":0.041438513,"d":[1.0,1.0,-3.0,0.0,0.0,1.0],"s":-0.25},{"n":"P1","f":0.0415525871,"d":[1.0,1.0,-2.0,0.0,0.0,0.0],"s":-0.25},{"n":"S1","f":0.0416666721,"d":[1.0,1.0,-1.0,0.0,0.0,1.0],"s":-0.75},{"n":"K1","f":0.0417807462,"d":[1.0,1.0,0.0,0.0,0.0,0.0],"s":-0.75},{"n":"PSI1","f":0.0418948203,"d":[1.0,1.0,1.0,0.0,0.0,-1.0],"s":-0.75},{"n":"PHI1","f":0.0420089053,"d":[1.0,1.0,2.0,0.0,0.0,0.0],"s":-0.75},{"n":"THE1","f":0.043090527,"d":[1.0,2.0,-2.0,1.0,0.0,0.0],"s":-0.75},{"n":"J1","f":0.0432928981,"d":[1.0,2.0,0.0,-1.0,0.0,0.0],"s":-0.75},{"n":"2PO1","f":0.0443745198,"ns":2,"is":0},{"n":"SO1","f":0.0446026789,"ns":2,"is":2},{"n":"OO1","f":0.044830838,"d":[1.0,3.0,0.0,0.0,0.0,0.0],"s":-0.75},{"n":"UPS1","f":0.0463429898,"d":[1.0,4.0,0.0,-1.0,0.0,0.0],"s":-0.75},{"n":"ST36","f":0.0733553835,"ns":3,"is":4},{"n":"2NS2","f":0.0746651643,"ns":2,"is":7},{"n":"ST37","f":0.0748675353,"ns":2,"is":9},{"n":"ST1","f":0.0748933234,"ns":3,"is":11},{"n":"OQ2","f":0.0759749451,"d":[2.0,-3.0,0.0,3.0,0.0,0.0]},{"n":"EPS2","f":0.0761773161,"d":[2.0,-3.0,2.0,1.0,0.0,0.0]},{"n":"ST2","f":0.0764054753,"ns":4,"is":14},{"n":"ST3","f":0.0772331498,"ns":3,"is":18},{"n":"O2","f":0.0774613089,"ns":1,"is":21},{"n":"2N2","f":0.077487097,"d":[2.0,-2.0,0.0,2.0,0.0,0.0]},{"n":"MU2","f":0.077689468,"d":[2.0,-2.0,2.0,0.0,0.0,0.0]},{"n":"SNK2","f":0.0787710897,"ns":3,"is":25},{"n":"N2","f":0.0789992488,"d":[2.0,-1.0,0.0,1.0,0.0,0.0]},{"n":"NU2","f":0.0792016198,"d":[2.0,-1.0,2.0,-1.0,0.0,0.0]},{"n":"ST4","f":0.079455567,"ns":3,"is":22},{"n":"OP2","f":0.0802832416,"ns":2,"is":28},{"n":"GAM2","f":0.0803090296,"d":[2.0,0.0,-2.0,2.0,0.0,0.0],"s":-0.5},{"n":"H1","f":0.0803973266,"d":[2.0,0.0,-1.0,0.0,0.0,1.0],"s":-0.5},{"n":"M2","f":0.0805114007,"d":[2.0,0.0,0.0,0.0,0.0,0.0]},{"n":"H2","f":0.0806254748,"d":[2.0,0.0,1.0,0.0,0.0,-1.0]},{"n":"MKS2","f":0.0807395598,"ns":3,"is":30},{"n":"ST5","f":0.0809677189,"ns":3,"is":33},{"n":"ST6","f":0.0815930224,"ns":4,"is":36},{"n":"LDA2","f":0.0818211815,"d":[2.0,1.0,-2.0,1.0,0.0,0.0],"s":-0.5},{"n":"L2","f":0.0820235525,"d":[2.0,1.0,0.0,-1.0,0.0,0.0],"s":-0.5},{"n":"2SK2","f":0.0831051742,"ns":2,"is":40},{"n":"T2","f":0.0832192592,"d":[2.0,2.0,-3.0,0.0,0.0,1.0]},{"n":"S2","f":0.0833333333,"d":[2.0,2.0,-2.0,0.0,0.0,0.0]},{"n":"R2","f":0.0834474074,"d":[2.0,2.0,-1.0,0.0,0.0,-1.0],"s":-0.5},{"n":"K2","f":0.0835614924,"d":[2.0,2.0,0.0,0.0,0.0,0.0]},{"n":"MSN2","f":0.0848454852,"ns":3,"is":42},{"n":"ETA2","f":0.0850736443,"d":[2.0,3.0,0.0,-1.0,0.0,0.0]},{"n":"ST7","f":0.0853018034,"ns":4,"is":45},{"n":"2SM2","f":0.086155266,"ns":2,"is":49},{"n":"ST38","f":0.086357637,"ns":3,"is":51},{"n":"SKM2","f":0.0863834251,"ns":3,"is":54},{"n":"2SN2","f":0.0876674179,"ns":2,"is":57},{"n":"NO3","f":0.1177299033,"ns":2,"is":59},{"n":"MO3","f":0.1192420551,"ns":2,"is":61},{"n":"M3","f":0.120767101,"d":[3.0,0.0,0.0,0.0,0.0,0.0],"s":-0.5},{"n":"NK3","f":0.120779995,"ns":2,"is":63},{"n":"SO3","f":0.1220639878,"ns":2,"is":65},{"n":"MK3","f":0.1222921469,"ns":2,"is":67},{"n":"SP3","f":0.1248859204,"ns":2,"is":69},{"n":"SK3","f":0.1251140796,"ns":2,"is":71},{"n":"ST8","f":0.1566887168,"ns":3,"is":73},{"n":"N4","f":0.1579984976,"ns":1,"is":76},{"n":"3MS4","f":0.1582008687,"ns":2,"is":77},{"n":"ST39","f":0.1592824904,"ns":4,"is":79},{"n":"MN4","f":0.1595106495,"ns":2,"is":83},{"n":"ST9","f":0.1597388086,"ns":4,"is":88},{"n":"ST40","f":0.1607946422,"ns":3,"is":85},{"n":"M4","f":0.1610228013,"ns":1,"is":92},{"n":"ST10","f":0.1612509604,"ns":3,"is":93},{"n":"SN4","f":0.1623325821,"ns":2,"is":96},{"n":"KN4","f":0.1625607413,"ns":2,"is":98},{"n":"MS4","f":0.163844734,"ns":2,"is":100},{"n":"MK4","f":0.1640728931,"ns":2,"is":102},{"n":"SL4","f":0.1653568858,"ns":2,"is":104},{"n":"S4","f":0.1666666667,"ns":1,"is":106},{"n":"SK4","f":0.1668948258,"ns":2,"is":107},{"n":"MNO5","f":0.1982413039,"ns":3,"is":109},{"n":"2MO5","f":0.1997534558,"ns":2,"is":112},{"n":"3MP5","f":0.1999816149,"ns":2,"is":114},{"n":"MNK5","f":0.2012913957,"ns":3,"is":116},{"n":"2MP5","f":0.2025753884,"ns":2,"is":119},{"n":"2MK5","f":0.2028035475,"ns":2,"is":121},{"n":"MSK5","f":0.2056254802,"ns":3,"is":123},{"n":"3KM5","f":0.2058536393,"ns":3,"is":126},{"n":"2SK5","f":0.2084474129,"ns":2,"is":129},{"n":"ST11","f":0.2372259056,"ns":3,"is":131},{"n":"2NM6","f":0.2385098983,"ns":2,"is":134},{"n":"ST12","f":0.2387380574,"ns":4,"is":136},{"n":"2MN6","f":0.2400220501,"ns":2,"is":143},{"n":"ST13","f":0.2402502093,"ns":4,"is":145},{"n":"ST41","f":0.2413060429,"ns":3,"is":140},{"n":"M6","f":0.241534202,"ns":1,"is":149},{"n":"MSN6","f":0.2428439828,"ns":3,"is":150},{"n":"MKN6","f":0.2430721419,"ns":3,"is":153},{"n":"ST42","f":0.2441279756,"ns":3,"is":168},{"n":"2MS6","f":0.2443561347,"ns":2,"is":156},{"n":"2MK6","f":0.2445842938,"ns":2,"is":158},{"n":"NSK6","f":0.2458940746,"ns":3,"is":160},{"n":"2SM6","f":0.2471780673,"ns":2,"is":163},{"n":"MSK6","f":0.2474062264,"ns":3,"is":165},{"n":"S6","f":0.25,"ns":1,"is":171},{"n":"ST14","f":0.2787527046,"ns":3,"is":172},{"n":"ST15","f":0.2802906445,"ns":3,"is":175},{"n":"M7","f":0.2817899023,"ns":1,"is":178},{"n":"ST16","f":0.2830867891,"ns":3,"is":179},{"n":"3MK7","f":0.2833149482,"ns":2,"is":182},{"n":"ST17","f":0.2861368809,"ns":4,"is":184},{"n":"ST18","f":0.319021299,"ns":2,"is":188},{"n":"3MN8","f":0.3205334508,"ns":2,"is":190},{"n":"ST19","f":0.3207616099,"ns":4,"is":192},{"n":"M8","f":0.3220456027,"ns":1,"is":196},{"n":"ST20","f":0.3233553835,"ns":3,"is":197},{"n":"ST21","f":0.3235835426,"ns":3,"is":200},{"n":"3MS8","f":0.3248675353,"ns":2,"is":203},{"n":"3MK8","f":0.3250956944,"ns":2,"is":205},{"n":"ST22","f":0.3264054753,"ns":4,"is":207},{"n":"ST23","f":0.327689468,"ns":2,"is":211},{"n":"ST24","f":0.3279176271,"ns":3,"is":213},{"n":"ST25","f":0.3608020452,"ns":3,"is":216},{"n":"ST26","f":0.362314197,"ns":3,"is":219},{"n":"4MK9","f":0.3638263489,"ns":2,"is":222},{"n":"ST27","f":0.3666482815,"ns":3,"is":224},{"n":"ST28","f":0.4010448515,"ns":2,"is":227},{"n":"M10","f":0.4025570033,"ns":1,"is":229},{"n":"ST29","f":0.4038667841,"ns":3,"is":230},{"n":"ST30","f":0.405378936,"ns":2,"is":233},{"n":"ST31","f":0.4069168759,"ns":4,"is":235},{"n":"ST32","f":0.4082008687,"ns":2,"is":239},{"n":"ST33","f":0.4471596822,"ns":3,"is":241},{"n":"M12","f":0.483068404,"ns":1,"is":244},{"n":"ST34","f":0.4858903367,"ns":2,"is":245},{"n":"ST35","f":0.4874282766,"ns":4,"is":247}],"s":[[7,[-1.0,0.0,0.0],0.75,0.036,1],[7,[0.0,-1.0,0.0],0.0,0.1906,0],[8,[-2.0,-2.0,0.0],0.5,0.0063,0],[8,[-1.0,-1.0,0.0],0.75,0.0241,1],[8,[-1.0,0.0,0.0],0.75,0.0607,1],[8,[0.0,-2.0,0.0],0.5,0.0063,0],[8,[0.0,-1.0,0.0],0.0,0.1885,0],[9,[-1.0,0.0,0.0],0.75,0.0095,1],[9,[0.0,-2.0,0.0],0.5,0.0061,0],[9,[0.0,-1.0,0.0],0.0,0.1884,0],[9,[2.0,0.0,0.0],0.5,0.0087,0],[10,[-2.0,-3.0,0.0],0.5,0.0007,0],[10,[-2.0,-2.0,0.0],0.5,0.0039,0],[10,[-1.0,-2.0,0.0],0.75,0.001,1],[10,[-1.0,-1.0,0.0],0.75,0.0115,1],[10,[-1.0,0.0,0.0],0.75,0.0292,1],[10,[0.0,-2.0,0.0],0.5,0.0057,0],[10,[-1.0,0.0,1.0],0.0,0.0008,0],[10,[0.0,-1.0,0.0],0.0,0.1884,0],[10,[1.0,0.0,0.0],0.75,0.0018,1],[10,[2.0,0.0,0.0],0.5,0.0028,0],[11,[0.0,-2.0,0.0],0.5,0.0058,0],[11,[0.0,-1.0,0.0],0.0,0.1882,0],[11,[1.0,0.0,0.0],0.75,0.0131,1],[11,[2.0,0.0,0.0],0.5,0.0576,0],[11,[2.0,1.0,0.0],0.0,0.0175,0],[12,[-1.0,0.0,0.0],0.25,0.0003,1],[12,[0.0,-2.0,0.0],0.5,0.0058,0],[12,[0.0,-1.0,0.0],0.0,0.1885,0],[12,[1.0,-1.0,0.0],0.25,0.0004,1],[12,[1.0,0.0,0.0],0.75,0.0029,1],[12,[1.0,1.0,0.0],0.25,0.0004,1],[12,[2.0,0.0,0.0],0.5,0.0064,0],[12,[2.0,1.0,0.0],0.5,0.001,0],[13,[-2.0,0.0,0.0],0.0,0.0446,0],[13,[-1.0,0.0,0.0],0.25,0.0426,1],[13,[0.0,-1.0,0.0],0.5,0.0284,0],[13,[0.0,1.0,0.0],0.5,0.217,0],[13,[0.0,2.0,0.0],0.5,0.0142,0],[14,[0.0,-1.0,0.0],0.0,0.2266,0],[15,[-2.0,-2.0,0.0],0.5,0.0057,0],[15,[-2.0,-1.0,0.0],0.0,0.0665,0],[15,[-2.0,0.0,0.0],0.0,0.3596,0],[15,[-1.0,-1.0,0.0],0.75,0.0331,1],[15,[-1.0,0.0,0.0],0.25,0.2227,1],[15,[-1.0,1.0,0.0],0.75,0.029,1],[15,[0.0,-1.0,0.0],0.5,0.029,0],[15,[0.0,1.0,0.0],0.0,0.2004,0],[15,[0.0,2.0,0.0],0.5,0.0054,0],[16,[0.0,-1.0,0.0],0.5,0.0282,0],[16,[0.0,1.0,0.0],0.0,0.2187,0],[17,[0.0,-1.0,0.0],0.5,0.0078,0],[18,[0.0,-2.0,0.0],0.0,0.0008,0],[18,[0.0,-1.0,0.0],0.5,0.0112,0],[18,[0.0,0.0,2.0],0.5,0.0004,0],[18,[1.0,0.0,0.0],0.75,0.0004,1],[18,[2.0,0.0,0.0],0.5,0.0015,0],[18,[2.0,1.0,0.0],0.5,0.0003,0],[19,[0.0,0.0,-2.0],0.0,0.3534,0],[19,[0.0,1.0,0.0],0.5,0.0264,0],[20,[-2.0,-1.0,0.0],0.0,0.0002,0],[20,[-1.0,-1.0,0.0],0.75,0.0001,1],[20,[-1.0,0.0,0.0],0.25,0.0007,1],[20,[-1.0,1.0,0.0],0.75,0.0001,1],[20,[0.0,-2.0,0.0],0.0,0.0001,0],[20,[0.0,-1.0,0.0],0.5,0.0198,0],[20,[0.0,1.0,0.0],0.0,0.1356,0],[20,[0.0,2.0,0.0],0.5,0.0029,0],[20,[1.0,0.0,0.0],0.25,0.0002,1],[20,[1.0,1.0,0.0],0.25,0.0001,1],[21,[0.0,1.0,0.0],0.0,0.019,0],[22,[-2.0,0.0,0.0],0.0,0.0344,0],[22,[-2.0,1.0,0.0],0.0,0.0106,0],[22,[0.0,0.0,-2.0],0.0,0.0132,0],[22,[0.0,1.0,0.0],0.5,0.0384,0],[22,[0.0,2.0,0.0],0.5,0.0185,0],[23,[-2.0,-1.0,0.0],0.0,0.03,0],[23,[-1.0,0.0,0.0],0.25,0.0141,1],[23,[0.0,-1.0,0.0],0.5,0.0317,0],[23,[0.0,1.0,0.0],0.0,0.1993,0],[24,[0.0,-1.0,0.0],0.5,0.0294,0],[24,[0.0,1.0,0.0],0.0,0.198,0],[24,[0.0,2.0,0.0],0.5,0.0047,0],[24,[1.0,-1.0,0.0],0.75,0.0027,1],[24,[1.0,0.0,0.0],0.25,0.0816,1],[24,[1.0,1.0,0.0],0.25,0.0331,1],[24,[1.0,2.0,0.0],0.25,0.0027,1],[24,[2.0,0.0,0.0],0.5,0.0152,0],[24,[2.0,1.0,0.0],0.5,0.0098,0],[24,[2.0,2.0,0.0],0.5,0.0057,0],[27,[-2.0,-1.0,0.0],0.5,0.0037,0],[27,[-2.0,0.0,0.0],0.0,0.1496,0],[27,[-2.0,1.0,0.0],0.0,0.0296,0],[27,[-1.0,0.0,0.0],0.25,0.024,1],[27,[-1.0,1.0,0.0],0.25,0.0099,1],[27,[0.0,1.0,0.0],0.0,0.6398,0],[27,[0.0,2.0,0.0],0.0,0.1342,0],[27,[0.0,3.0,0.0],0.0,0.0086,0],[28,[-2.0,0.0,0.0],0.0,0.0611,0],[28,[0.0,1.0,0.0],0.0,0.6399,0],[28,[0.0,2.0,0.0],0.0,0.1318,0],[28,[1.0,0.0,0.0],0.25,0.0289,1],[28,[1.0,1.0,0.0],0.25,0.0257,1],[33,[-1.0,0.0,0.0],0.25,0.1042,2],[33,[0.0,-1.0,0.0],0.5,0.0386,0],[34,[-1.0,-1.0,0.0],0.25,0.0075,2],[34,[-1.0,0.0,0.0],0.25,0.0402,2],[34,[0.0,-1.0,0.0],0.5,0.0373,0],[38,[-2.0,-2.0,0.0],0.5,0.0061,0],[38,[-1.0,-1.0,0.0],0.25,0.0117,2],[38,[-1.0,0.0,0.0],0.25,0.0678,2],[38,[0.0,-1.0,0.0],0.5,0.0374,0],[39,[-1.0,-1.0,0.0],0.25,0.0018,2],[39,[-1.0,0.0,0.0],0.25,0.0104,2],[39,[0.0,-1.0,0.0],0.5,0.0375,0],[41,[-2.0,-2.0,0.0],0.5,0.0039,0],[41,[-1.0,0.0,1.0],0.0,0.0008,0],[41,[0.0,-2.0,0.0],0.0,0.0005,0],[41,[0.0,-1.0,0.0],0.5,0.0373,0],[42,[0.0,-1.0,0.0],0.5,0.0373,0],[42,[1.0,0.0,0.0],0.75,0.0042,2],[42,[2.0,0.0,0.0],0.0,0.0042,0],[42,[2.0,1.0,0.0],0.5,0.0036,0],[45,[-2.0,-2.0,0.0],0.0,0.1429,0],[45,[-1.0,0.0,0.0],0.25,0.0293,2],[45,[0.0,-1.0,0.0],0.5,0.033,0],[46,[0.0,-1.0,0.0],0.5,0.0224,0],[46,[1.0,0.0,-1.0],0.5,0.0447,0],[47,[-1.0,-1.0,0.0],0.75,0.0001,2],[47,[-1.0,0.0,0.0],0.75,0.0004,2],[47,[0.0,-2.0,0.0],0.0,0.0005,0],[47,[0.0,-1.0,0.0],0.5,0.0373,0],[47,[1.0,-1.0,0.0],0.25,0.0001,2],[47,[1.0,0.0,0.0],0.75,0.0009,2],[47,[1.0,1.0,0.0],0.75,0.0002,2],[47,[2.0,0.0,0.0],0.0,0.0006,0],[47,[2.0,1.0,0.0],0.0,0.0002,0],[48,[0.0,-1.0,0.0],0.5,0.0217,0],[52,[0.0,-1.0,0.0],0.5,0.0448,0],[53,[0.0,-1.0,0.0],0.5,0.0366,0],[53,[2.0,-1.0,0.0],0.0,0.0047,0],[53,[2.0,0.0,0.0],0.5,0.2505,0],[53,[2.0,1.0,0.0],0.5,0.1102,0],[53,[2.0,2.0,0.0],0.5,0.0156,0],[56,[0.0,-1.0,0.0],0.0,0.0022,0],[56,[1.0,0.0,0.0],0.75,0.0001,2],[56,[2.0,0.0,0.0],0.0,0.0001,0],[57,[0.0,0.0,2.0],0.5,0.2535,0],[57,[0.0,1.0,2.0],0.0,0.0141,0],[58,[-1.0,0.0,0.0],0.75,0.0024,2],[58,[-1.0,1.0,0.0],0.75,0.0004,2],[58,[0.0,-1.0,0.0],0.5,0.0128,0],[58,[0.0,1.0,0.0],0.0,0.298,0],[58,[0.0,2.0,0.0],0.0,0.0324,0],[60,[0.0,-1.0,0.0],0.5,0.0187,0],[60,[0.0,1.0,0.0],0.0,0.4355,0],[60,[0.0,2.0,0.0],0.0,0.0467,0],[60,[1.0,0.0,0.0],0.75,0.0747,2],[60,[1.0,1.0,0.0],0.75,0.0482,2],[60,[1.0,2.0,0.0],0.75,0.0093,2],[60,[2.0,0.0,0.0],0.5,0.0078,0],[68,[0.0,-1.0,0.0],0.5,0.0564,0]],"sh":[[18,2.0],[12,-1.0],[56,1.0],[12,-1.0],[47,2.0],[41,1.0],[56,-2.0],[41,2.0],[56,-1.0],[47,3.0],[56,-2.0],[41,2.0],[58,1.0],[56,-2.0],[47,1.0],[41,1.0],[58,1.0],[56,-2.0],[47,2.0],[56,1.0],[58,-2.0],[12,2.0],[58,2.0],[41,1.0],[56,-2.0],[56,1.0],[41,1.0],[58,-1.0],[12,1.0],[18,1.0],[47,1.0],[58,1.0],[56,-1.0],[47,1.0],[58,2.0],[56,-2.0],[56,2.0],[41,1.0],[47,-1.0],[58,-1.0],[56,2.0],[58,-1.0],[47,1.0],[56,1.0],[41,-1.0],[58,2.0],[47,1.0],[56,-1.0],[41,-1.0],[56,2.0],[47,-1.0],[47,2.0],[56,1.0],[41,-2.0],[56,1.0],[58,1.0],[47,-1.0],[56,2.0],[41,-1.0],[41,1.0],[12,1.0],[47,1.0],[12,1.0],[41,1.0],[20,1.0],[56,1.0],[12,1.0],[47,1.0],[20,1.0],[56,1.0],[18,1.0],[56,1.0],[20,1.0],[47,2.0],[41,1.0],[56,-1.0],[41,2.0],[47,3.0],[56,-1.0],[47,1.0],[56,1.0],[41,1.0],[58,-1.0],[47,1.0],[41,1.0],[47,2.0],[56,1.0],[58,-1.0],[47,1.0],[41,1.0],[58,1.0],[56,-1.0],[47,2.0],[47,2.0],[58,1.0],[56,-1.0],[56,1.0],[41,1.0],[58,1.0],[41,1.0],[47,1.0],[56,1.0],[47,1.0],[58,1.0],[56,1.0],[53,1.0],[56,2.0],[56,1.0],[58,1.0],[47,1.0],[41,1.0],[12,1.0],[47,2.0],[12,1.0],[47,3.0],[18,-1.0],[47,1.0],[41,1.0],[20,1.0],[47,2.0],[18,1.0],[47,2.0],[20,1.0],[47,1.0],[56,1.0],[20,1.0],[58,1.0],[20,1.0],[47,1.0],[56,2.0],[20,1.0],[41,3.0],[58,1.0],[56,-1.0],[41,2.0],[47,1.0],[41,2.0],[47,1.0],[58,1.0],[56,-1.0],[47,3.0],[56,1.0],[58,-1.0],[47,2.0],[41,1.0],[47,2.0],[41,1.0],[58,1.0],[56,-1.0],[47,3.0],[47,1.0],[56,1.0],[41,1.0],[47,1.0],[58,1.0],[41,1.0],[47,2.0],[56,1.0],[47,2.0],[58,1.0],[41,1.0],[56,1.0],[58,1.0],[56,2.0],[47,1.0],[47,1.0],[56,1.0],[58,1.0],[47,2.0],[56,2.0],[58,-1.0],[56,3.0],[47,2.0],[41,1.0],[12,1.0],[41,2.0],[47,1.0],[20,1.0],[47,3.5],[47,2.0],[56,1.0],[12,1.0],[47,3.0],[20,1.0],[47,1.0],[56,1.0],[58,1.0],[12,1.0],[47,2.0],[41,2.0],[47,3.0],[41,1.0],[47,3.0],[41,1.0],[58,1.0],[56,-1.0],[47,4.0],[47,2.0],[56,1.0],[41,1.0],[47,2.0],[41,1.0],[58,1.0],[47,3.0],[56,1.0],[47,3.0],[58,1.0],[47,1.0],[56,1.0],[41,1.0],[58,1.0],[47,2.0],[56,2.0],[47,2.0],[56,1.0],[58,1.0],[47,2.0],[41,2.0],[20,1.0],[47,3.0],[41,1.0],[20,1.0],[47,4.0],[20,1.0],[47,3.0],[56,1.0],[20,1.0],[47,4.0],[41,1.0],[47,5.0],[47,3.0],[41,1.0],[56,1.0],[47,4.0],[56,1.0],[47,2.0],[41,1.0],[56,1.0],[58,1.0],[47,3.0],[56,2.0],[47,4.0],[56,1.0],[20,1.0],[47,6.0],[47,5.0],[56,1.0],[47,3.0],[41,1.0],[58,1.0],[56,1.0]],"nf":146};
+
+// ═══════════════════════════════════════════════════════════════
+//  MAPPING NOMS SHOM → UTIDE  +  CONSTITUANTS EXTRA
+// ═══════════════════════════════════════════════════════════════
+const SHOM_TO_UTIDE = {"SIGMA1":"SIG1","Sig1":"SIG1","Ro1":"RHO1","THETA1":"THE1","Tta1":"THE1","Ki1":"CHI1","Pi1":"PI1","Phi1":"PHI1","Psi1":"PSI1","GAMMA2":"GAM2","LAMBDA2":"LDA2","La2":"LDA2","KJ2":"ETA2","E2":"EPS2","Mu2":"MU2","Nu2":"NU2","Mm":"MM","Mf":"MF","M1":null,"MP1":null,"MS1":null,"KQ1":null};
+const EXTRA_CONSTITUENTS = {"M(SK)2":{"w":29.0662416,"d":[["M2",1],["S2",1],["K2",-1]]},"M(KS)2":{"w":28.9019669,"d":[["M2",1],["K2",1],["S2",-1]]},"NKM2":{"w":28.9019669,"d":[["N2",1],["K2",1],["M2",-1]]},"MNS2":{"w":27.4238337,"d":[["M2",1],["N2",1],["S2",-1]]},"MNUS2":{"w":27.4966873,"d":[["M2",1],["NU2",1],["S2",-1]]},"2MK2":{"w":27.8860711,"d":[["M2",2],["K2",-1]]},"2MN2S2":{"w":26.407938,"d":[["M2",2],["N2",1],["S2",-2]]},"3M2S2":{"w":26.8712065,"d":[["M2",3],["S2",-2]]},"MS1":{"w":14.4966878,"d":[["M2",1],["S2",-1],["K1",1]]},"MP1":{"w":14.0251728,"d":[["M2",1],["P1",-1]]},"KQ1":{"w":13.4715145,"d":[["K1",1],["Q1",1],["O1",-1]]},"M1":{"w":14.4920521,"d":[["M2",0.5]]},"2MK3":{"w":42.9271398,"d":[["M2",2],["K1",-1]]},"S3":{"w":45.0,"d":[]},"2MMUS4":{"w":55.936417,"d":[["M2",2],["MU2",1],["S2",-1]]},"2MNS4":{"w":56.407938,"d":[["M2",2],["N2",1],["S2",-1]]},"MNU4":{"w":57.4966873,"d":[["M2",1],["NU2",1]]},"2MSK4":{"w":57.8860711,"d":[["M2",2],["S2",1],["K2",-1]]},"2MKS4":{"w":57.8860711,"d":[["M2",2],["K2",1],["S2",-1]]},"3MN4":{"w":57.4238337,"d":[["M2",3],["N2",-1]]},"NK4":{"w":58.5218669,"d":[["N2",1],["K2",1]]},"MT4":{"w":57.4966873,"d":[["M2",1],["T2",1]]},"2SNM4":{"w":59.5284789,"d":[["S2",2],["N2",1],["M2",-1]]},"2MSN4":{"w":58.5125831,"d":[["M2",2],["S2",1],["N2",-1]]},"3MNK6":{"w":86.3257952,"d":[["M2",3],["N2",1],["K2",-1]]},"3MNS6":{"w":85.3920423,"d":[["M2",3],["N2",1],["S2",-1]]},"3MNUS6":{"w":85.4648959,"d":[["M2",3],["NU2",1],["S2",-1]]},"4MK6":{"w":85.8542797,"d":[["M2",4],["K2",-1]]},"4MS6":{"w":85.936417,"d":[["M2",4],["S2",-1]]},"2MNU6":{"w":86.4808916,"d":[["M2",2],["NU2",1]]},"3MSK6":{"w":86.8702754,"d":[["M2",3],["S2",1],["K2",-1]]},"3MKS6":{"w":86.8702754,"d":[["M2",3],["K2",1],["S2",-1]]},"4MN6":{"w":87.4238338,"d":[["M2",4],["N2",-1]]},"MNK6":{"w":87.5059711,"d":[["M2",1],["N2",1],["K2",1]]},"2SN6":{"w":88.4397296,"d":[["S2",2],["N2",1]]},"3MSN6":{"w":87.4966873,"d":[["M2",3],["S2",1],["N2",-1]]},"3MKN6":{"w":87.5059711,"d":[["M2",3],["K2",1],["N2",-1]]},"3MNU8":{"w":115.4648959,"d":[["M2",3],["NU2",1]]},"2MSN8":{"w":116.4966873,"d":[["M2",2],["S2",1],["N2",1]]},"2(MS)8":{"w":117.9682085,"d":[["M2",2],["S2",2]]}};
+
+// ═══════════════════════════════════════════════════════════════
+//  LISTE DES FICHIERS HAR
+// ═══════════════════════════════════════════════════════════════
+const HAR_DIR = 'har_ports';
+const HAR_FILES = [{"filename":"Aber-Wrach.har","buggy":false},{"filename":"Anse-de-Primel.har","buggy":false},{"filename":"Arcachon-Jetee-dEyrac.har","buggy":false},{"filename":"Arromanches-Les-Bains.har","buggy":false},{"filename":"Baie-de-Morlaix-Carantec.har","buggy":false},{"filename":"Baie-de-Saint-Brieuc-Le-Legue.har","buggy":false},{"filename":"Baie-de-Somme-Le-Crotoy.har","buggy":false},{"filename":"Barfleur.har","buggy":false},{"filename":"Belle-Ile-Le-Palais.har","buggy":false},{"filename":"Benodet.har","buggy":false},{"filename":"Berck-Plage-Fort-Mahon.har","buggy":false},{"filename":"Binic.har","buggy":false},{"filename":"Biscarrosse.har","buggy":false},{"filename":"Boucau-Bayonne-Biarritz.har","buggy":false},{"filename":"Boulogne-sur-Mer.har","buggy":false},{"filename":"Brest.har","buggy":false},{"filename":"Brignogan-Plage.har","buggy":false},{"filename":"Calais.har","buggy":false},{"filename":"Camaret-sur-Mer.har","buggy":false},{"filename":"Cancale.har","buggy":false},{"filename":"Cap-Ferret.har","buggy":false},{"filename":"Cayeux-sur-Mer.har","buggy":false},{"filename":"Cherbourg.har","buggy":false},{"filename":"Concarneau.har","buggy":false},{"filename":"Cordouan.har","buggy":false},{"filename":"Courseulles-sur-Mer.har","buggy":false},{"filename":"Dahouet.har","buggy":false},{"filename":"Dielette.har","buggy":false},{"filename":"Dieppe.har","buggy":false},{"filename":"Dives-sur-Mer.har","buggy":false},{"filename":"Douarnenez.har","buggy":false},{"filename":"Dunkerque.har","buggy":false},{"filename":"Erquy.har","buggy":false},{"filename":"Etel.har","buggy":false},{"filename":"Etretat.har","buggy":false},{"filename":"Fecamp.har","buggy":false},{"filename":"Fromentine-Port.har","buggy":false},{"filename":"Goury.har","buggy":false},{"filename":"Grandcamp.har","buggy":false},{"filename":"Gravelines.har","buggy":false},{"filename":"Hoedic.har","buggy":false},{"filename":"Honfleur.har","buggy":false},{"filename":"Houat.har","buggy":false},{"filename":"Ile-Molene.har","buggy":false},{"filename":"Ile-dAix.har","buggy":false},{"filename":"Ile-dOleron-La-Cotiniere.har","buggy":false},{"filename":"Ile-dOuessant-Baie-de-Lampaul.har","buggy":false},{"filename":"Ile-dYeu-Port-Joinville.har","buggy":false},{"filename":"Ile-de-Brehat.har","buggy":false},{"filename":"Ile-de-Groix-Port-Tudy.har","buggy":false},{"filename":"Ile-de-Re-Saint-Martin.har","buggy":false},{"filename":"Ile-de-Sein.har","buggy":false},{"filename":"Ile-des-Hebihens.har","buggy":false},{"filename":"Iles-Chausey-Grande-Ile.har","buggy":false},{"filename":"Iles-Saint-Marcouf.har","buggy":false},{"filename":"LAber-Benoit.har","buggy":false},{"filename":"LAber-Ildut-Lanildut.har","buggy":false},{"filename":"La-Rochelle-Pallice.har","buggy":false},{"filename":"La-Trinite-sur-Mer.har","buggy":false},{"filename":"Lacanau-Large.har","buggy":false},{"filename":"Lamena.har","buggy":false},{"filename":"Le-Conquet.har","buggy":false},{"filename":"Le-Croisic.har","buggy":false},{"filename":"Le-Guilvinec.har","buggy":false},{"filename":"Le-Havre-Antifer.har","buggy":false},{"filename":"Le-Havre.har","buggy":false},{"filename":"Le-Pouldu.har","buggy":false},{"filename":"Le-Pouliguen.har","buggy":false},{"filename":"Le-Touquet.har","buggy":false},{"filename":"Le-Treport.har","buggy":false},{"filename":"Les-Heaux-de-Brehat.har","buggy":false},{"filename":"Les-Sables-dOlonne.har","buggy":false},{"filename":"Lesconil.har","buggy":false},{"filename":"Lezardrieux.har","buggy":false},{"filename":"Locquemeau.har","buggy":false},{"filename":"Locquirec.har","buggy":false},{"filename":"Loctudy.har","buggy":false},{"filename":"Lorient.har","buggy":false},{"filename":"Mimizan.har","buggy":false},{"filename":"Morgat.har","buggy":false},{"filename":"Noirmoutier-LHerbaudiere.har","buggy":false},{"filename":"Ouistreham.har","buggy":false},{"filename":"Paimpol.har","buggy":false},{"filename":"Pauillac.har","buggy":false},{"filename":"Penerf.har","buggy":false},{"filename":"Penfret-Iles-de-Glenan.har","buggy":false},{"filename":"Penmarch-Saint-Guenole.har","buggy":false},{"filename":"Perros-Guirec.har","buggy":false},{"filename":"Ploumanach.har","buggy":false},{"filename":"Pointe-dAgon.har","buggy":false},{"filename":"Pointe-de-Gatseau.har","buggy":false},{"filename":"Pointe-de-Grave-Port-Bloc.har","buggy":false},{"filename":"Pointe-de-Saint-Gildas.har","buggy":false},{"filename":"Pornic.har","buggy":false},{"filename":"Pornichet.har","buggy":false},{"filename":"Port-Beni.har","buggy":false},{"filename":"Port-Louis-Locmalo.har","buggy":false},{"filename":"Port-Manech.har","buggy":false},{"filename":"Port-Navalo.har","buggy":false},{"filename":"Port-du-Crouesty.har","buggy":false},{"filename":"Port-en-Bessin.har","buggy":false},{"filename":"Portbail.har","buggy":false},{"filename":"Portsall.har","buggy":false},{"filename":"Quiberon-Port-Haliguen.har","buggy":false},{"filename":"Quiberon-Port-Maria.har","buggy":false},{"filename":"Richards.har","buggy":false},{"filename":"Roscoff.har","buggy":false},{"filename":"Royan.har","buggy":false},{"filename":"Saint-Cast.har","buggy":false},{"filename":"Saint-Denis-dOleron.har","buggy":false},{"filename":"Saint-Germain-sur-Ay.har","buggy":false},{"filename":"Saint-Gilles-Croix-de-Vie.har","buggy":false},{"filename":"Saint-Jean-de-Luz.har","buggy":false},{"filename":"Saint-Nazaire.har","buggy":false},{"filename":"Saint-Quay-Portrieux.har","buggy":false},{"filename":"Saint-Vaast-La-Hougue.har","buggy":false},{"filename":"Saint-Valery-en-Caux.har","buggy":false},{"filename":"Trebeurden.har","buggy":false},{"filename":"Treguier.har","buggy":false},{"filename":"Trehiguier.har","buggy":false},{"filename":"Trez-Hir.har","buggy":false},{"filename":"Trouville-Deauville.har","buggy":false},{"filename":"Vieux-Boucau.har","buggy":false},{"filename":"Wissant.har","buggy":false},{"filename":"_Arradon.har","buggy":true},{"filename":"_Audierne.har","buggy":true},{"filename":"_Auray-St-Goustan.har","buggy":true},{"filename":"_Bordeaux.har","buggy":true},{"filename":"_Carteret.har","buggy":true},{"filename":"_Fromentine-Bouee.har","buggy":true},{"filename":"_Granville.har","buggy":true},{"filename":"_Le-Logeo.har","buggy":true},{"filename":"_Locmariaquer.har","buggy":true},{"filename":"_Omonville-la-Rogue.har","buggy":true},{"filename":"_Saint-Armel-Le-Passage.har","buggy":true},{"filename":"_Saint-Malo.har","buggy":true},{"filename":"_Vannes.har","buggy":true}];
+
+// ═══════════════════════════════════════════════════════════════
+//  INDEX DES NOMS UTIDE
+// ═══════════════════════════════════════════════════════════════
+const UTIDE_NAMES = UTIDE.c.map(c => c.n);
+const UTIDE_NAME_IDX = {};
+UTIDE_NAMES.forEach((n, i) => UTIDE_NAME_IDX[n] = i);
+
+// Pré-calcul : quels constituants sont « shallow water »
+const NCONST = UTIDE.c.length;
+const IS_SHALLOW = new Array(NCONST);
+for (let i = 0; i < NCONST; i++) {
+  IS_SHALLOW[i] = UTIDE.c[i].ns !== undefined;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ASTRONOMIE  (port fidèle de utide/astronomy.py ut_astron)
+//
+//  Calcule les 6 arguments astronomiques fondamentaux (en cycles) :
+//    tau = temps lunaire
+//    s   = longitude moyenne de la Lune
+//    h   = longitude moyenne du Soleil
+//    p   = longitude du périgée lunaire
+//    np  = -longitude du nœud ascendant lunaire
+//    pp  = longitude du périhélie solaire
+// ═══════════════════════════════════════════════════════════════
+
+const _ASTRO_COEFS = [
+  [270.434164, 13.1763965268, -0.0000850,  0.000000039],   // s
+  [279.696678,  0.9856473354,  0.00002267, 0.000000000],   // h
+  [334.329556,  0.1114040803, -0.0007739, -0.00000026],    // p
+  [-259.183275, 0.0529539222, -0.0001557, -0.000000050],   // np
+  [281.220844,  0.0000470684,  0.0000339,  0.000000070],   // pp
+];
+
+function utAstron(jd) {
+  const daten = 693595.5;
+  const d = jd - daten;
+  const D = d / 10000;
+  const D2 = D * D;
+  const D3 = D2 * D;
+
+  const astro = new Float64Array(6);
+  const ader  = new Float64Array(6);
+
+  // Compute s, h, p, np, pp (indices 1..5 in astro)
+  for (let i = 0; i < 5; i++) {
+    const c = _ASTRO_COEFS[i];
+    const val = c[0] + c[1] * d + c[2] * D2 + c[3] * D3;
+    astro[i + 1] = (val / 360) % 1;
+
+    const dval = c[1] + c[2] * 2e-4 * D + c[3] * 3e-4 * D2;
+    ader[i + 1] = dval / 360;
+  }
+
+  // tau = fractional day + h - s
+  astro[0] = (jd % 1) + astro[2] - astro[1];
+  ader[0] = 1.0 + ader[2] - ader[1];
+
+  return { astro, ader };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CALCUL FUV  (port fidèle de utide/harmonics.py FUV)
+//
+//  Calcule pour chaque constituant utide (146) à l'instant t_ord :
+//    F = correction nodale d'amplitude (sans unité)
+//    U = correction nodale de phase (cycles)
+//    V = argument astronomique de Greenwich (cycles)
+//
+//  Équivalent à ngflgs = [0,0,0,0] (exact nodsat + exact Greenwich)
+// ═══════════════════════════════════════════════════════════════
+
+function computeAllFUV(t_ord, lat) {
+  const { astro } = utAstron(t_ord);
+  const TWO_PI = 2 * Math.PI;
+
+  // ── Corrections nodales (F, U) via satellites ──
+  if (Math.abs(lat) < 5) lat = Math.sign(lat || 1) * 5;
+  const slat = Math.sin(lat * Math.PI / 180);
+
+  const sats = UTIDE.s;
+  const nsat = sats.length;
+
+  // Accumuler les contributions satellites dans F (complexe)
+  const Fr = new Float64Array(NCONST).fill(1);
+  const Fi = new Float64Array(NCONST).fill(0);
+
+  for (let i = 0; i < nsat; i++) {
+    let r = sats[i][3];  // amprat
+    const ilatfac = sats[i][4];
+    if (ilatfac === 1) r *= 0.36309 * (1.0 - 5.0 * slat * slat) / slat;
+    else if (ilatfac === 2) r *= 2.59808 * slat;
+
+    // Phase satellite: dot(deldood, astro[3:6]) + phcorr, en cycles
+    const dd = sats[i][1];
+    let u = dd[0] * astro[3] + dd[1] * astro[4] + dd[2] * astro[5] + sats[i][2];
+    u = u % 1;  // fmod (rem)
+
+    const angle = TWO_PI * u;
+    const ic = sats[i][0];  // iconst, 0-based
+    Fr[ic] += r * Math.cos(angle);
+    Fi[ic] += r * Math.sin(angle);
+  }
+
+  const F = new Float64Array(NCONST);
+  const U = new Float64Array(NCONST);
+  for (let i = 0; i < NCONST; i++) {
+    F[i] = Math.sqrt(Fr[i] * Fr[i] + Fi[i] * Fi[i]);
+    U[i] = Math.atan2(Fi[i], Fr[i]) / TWO_PI;  // cycles
+  }
+
+  // Shallow water : F et U dérivés des parents
+  const shData = UTIDE.sh;
+  for (let i = 0; i < NCONST; i++) {
+    const ci = UTIDE.c[i];
+    if (ci.ns === undefined) continue;
+    const nshal = ci.ns;
+    const i0 = ci.is;
+    let fProd = 1.0, uSum = 0.0;
+    for (let k = 0; k < nshal; k++) {
+      const j = shData[i0 + k][0];
+      const coef = shData[i0 + k][1];
+      fProd *= Math.pow(F[j], Math.abs(coef));
+      uSum += U[j] * coef;
+    }
+    F[i] = fProd;
+    U[i] = uSum;
+  }
+
+  // ── Argument astronomique V ──
+  const V = new Float64Array(NCONST);
+
+  // Constituants directs : V = dot(doodson, astro) + semi
+  for (let i = 0; i < NCONST; i++) {
+    if (IS_SHALLOW[i]) continue;
+    const ci = UTIDE.c[i];
+    let v = 0;
+    for (let j = 0; j < 6; j++) v += ci.d[j] * astro[j];
+    if (ci.s) v += ci.s;
+    v = v % 1;
+    V[i] = v;
+  }
+
+  // Shallow water : V dérivé des parents
+  for (let i = 0; i < NCONST; i++) {
+    const ci = UTIDE.c[i];
+    if (ci.ns === undefined) continue;
+    const nshal = ci.ns;
+    const i0 = ci.is;
+    let v = 0;
+    for (let k = 0; k < nshal; k++) {
+      const j = shData[i0 + k][0];
+      const coef = shData[i0 + k][1];
+      v += V[j] * coef;
+    }
+    V[i] = v;
+  }
+
+  return { F, U, V };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PARSEUR DE FICHIERS .har
+// ═══════════════════════════════════════════════════════════════
+
+function parseHAR(text, filename) {
+  const lines = text.split(/\r?\n/);
+  let section = null;
+  let nom = filename.replace(/\.har$/, '');
+  let lat = null, lon = null, z0 = null;
+  const constituents = {};
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    if (line.startsWith('[') && line.endsWith(']')) {
+      section = line.slice(1, -1).toLowerCase();
+      continue;
+    }
+    if (section === 'port' && line.includes('=')) {
+      const eqIdx = line.indexOf('=');
+      const k = line.slice(0, eqIdx).trim().toLowerCase();
+      const v = line.slice(eqIdx + 1).trim();
+      if (k === 'nom') nom = v;
+      else if (k === 'latitude') lat = parseFloat(v);
+      else if (k === 'longitude') lon = parseFloat(v);
+      else if (k === 'z0') z0 = parseFloat(v);
+    } else if (section === 'constituants') {
+      const parts = line.split(/\s+/);
+      if (parts.length >= 3) {
+        const amp = parseFloat(parts[1]);
+        const phase = parseFloat(parts[2]);
+        if (!isNaN(amp) && !isNaN(phase)) {
+          constituents[parts[0]] = [amp, phase];
+        }
+      }
+    }
+  }
+
+  if (lat === null || lon === null) return null;
+  return { nom, lat, lon, z0, constituents, filename };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PRÉPARATION D'UN PORT
+//  Mappe les noms SHOM → indices utide, calcule les harmoniques
+//  effectives (amplitude et phase pré-corrigées à t0).
+// ═══════════════════════════════════════════════════════════════
+
+function resolveUtideName(shomName) {
+  if (SHOM_TO_UTIDE.hasOwnProperty(shomName)) return SHOM_TO_UTIDE[shomName];
+  if (UTIDE_NAME_IDX.hasOwnProperty(shomName)) return shomName;
+  return shomName;
+}
+
+function datetimeToOrdinal(date) {
+  const epochOrdinal = 719163;  // ordinal Python de 1970-01-01
+  return epochOrdinal + date.getTime() / 86400000;
+}
+
+function ordinalToJD(ordinal) {
+  return ordinal + 1721424.5;
+}
+
+function preparePort(harData, FUV_all, t0_ord) {
+  const DEG = 360;
+  const cList = [];
+
+  const jd0 = ordinalToJD(t0_ord);
+  const t0_hours_j2000 = (jd0 - 2451545.0) * 24.0;
+
+  // Cache des données FUV des parents (pour les constituants extra)
+  const parentCache = {};
+
+  for (const [shomName, [amp, phaseG]] of Object.entries(harData.constituents)) {
+    if (shomName === 'Z0') continue;
+
+    const utideName = resolveUtideName(shomName);
+
+    // ── Constituant utide connu ──
+    if (utideName !== null && UTIDE_NAME_IDX.hasOwnProperty(utideName)) {
+      const idx = UTIDE_NAME_IDX[utideName];
+      const speed = UTIDE.c[idx].f * DEG;  // cycles/h → °/h
+      const effAmp = FUV_all.F[idx] * amp;
+      const effPhase = FUV_all.V[idx] * DEG + FUV_all.U[idx] * DEG - phaseG;
+
+      if (effAmp > 1e-7) {
+        cList.push({ w: speed, a: effAmp, p: effPhase });
+      }
+      parentCache[utideName] = {
+        f: FUV_all.F[idx],
+        u: FUV_all.U[idx] * DEG,
+        v: FUV_all.V[idx] * DEG,
+      };
+      continue;
+    }
+
+    // ── Constituant extra (hors utide) ──
+    if (EXTRA_CONSTITUENTS.hasOwnProperty(shomName)) {
+      const extra = EXTRA_CONSTITUENTS[shomName];
+      const speed = extra.w;
+      const decomp = extra.d;
+
+      let V_c = 0, U_c = 0, f_c = 1;
+      if (decomp.length > 0) {
+        for (const [pname, coef] of decomp) {
+          if (!parentCache[pname] && UTIDE_NAME_IDX.hasOwnProperty(pname)) {
+            const pidx = UTIDE_NAME_IDX[pname];
+            parentCache[pname] = {
+              f: FUV_all.F[pidx],
+              u: FUV_all.U[pidx] * DEG,
+              v: FUV_all.V[pidx] * DEG,
+            };
+          }
+          if (parentCache[pname]) {
+            const pd = parentCache[pname];
+            V_c += coef * pd.v;
+            U_c += coef * pd.u;
+            f_c *= Math.pow(pd.f, Math.abs(coef));
+          }
+        }
+      } else {
+        V_c = speed * t0_hours_j2000;
+        f_c = 1.0;
+      }
+
+      const effAmp = f_c * amp;
+      const effPhase = V_c + U_c - phaseG;
+      if (effAmp > 1e-7) {
+        cList.push({ w: speed, a: effAmp, p: effPhase });
+      }
+      continue;
+    }
+    // Constituant inconnu → ignoré
+  }
+
+  return {
+    nom: harData.nom,
+    lat: harData.lat,
+    lon: harData.lon,
+    z0: harData.z0 || 0,
+    filename: harData.filename,
+    buggy: harData.filename.startsWith('_'),
+    c: cList,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PRÉDICTION HARMONIQUE
+// ═══════════════════════════════════════════════════════════════
+
+function predict(port, dayOffset) {
+  const STEP = 10;
+  const N = 24 * 60 / STEP + 1;
+  const baseH = dayOffset * 24;
+  const DEG2RAD = Math.PI / 180;
+  const nc = port.c.length;
+  const times = new Array(N);
+  const heights = new Array(N);
+
+  for (let i = 0; i < N; i++) {
+    const dt = baseH + i * STEP / 60;
+    let h = port.z0;
+    for (let j = 0; j < nc; j++) {
+      const c = port.c[j];
+      h += c.a * Math.cos((c.w * dt + c.p) * DEG2RAD);
+    }
+    times[i] = i * STEP;
+    heights[i] = Math.round(h * 1000) / 1000;
+  }
+  return { times, heights };
+}
+
+function findExtremes(times, heights) {
+  const pm = [], bm = [];
+  for (let i = 1; i < heights.length - 1; i++) {
+    if (heights[i] > heights[i-1] && heights[i] >= heights[i+1])
+      pm.push({ t: times[i], h: heights[i] });
+    else if (heights[i] < heights[i-1] && heights[i] <= heights[i+1])
+      bm.push({ t: times[i], h: heights[i] });
+  }
+  return { pm, bm };
+}
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+function minutesToHHMM(m) { return pad2(Math.floor(m/60)) + 'h' + pad2(m%60); }
+
+// ═══════════════════════════════════════════════════════════════
+//  CHARGEMENT PRINCIPAL
+// ═══════════════════════════════════════════════════════════════
+
+const PORTS = [];
+let T0, T0_ORD;
+
+async function init() {
+  const loadMsg = document.getElementById('loading-msg');
+
+  // t0 = aujourd'hui 0h UTC
+  const now = new Date();
+  T0 = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  T0_ORD = datetimeToOrdinal(T0);
+
+  // Chargement des fichiers HAR en parallèle
+  loadMsg.textContent = `Chargement de ${HAR_FILES.length} fichiers .har…`;
+  await new Promise(r => setTimeout(r, 10));
+
+  const results = await Promise.allSettled(
+    HAR_FILES.map(hf =>
+      fetch(HAR_DIR + '/' + hf.filename)
+        .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+        .then(text => ({ text, hf }))
+    )
+  );
+
+  loadMsg.textContent = 'Calcul des corrections astronomiques…';
+  await new Promise(r => setTimeout(r, 10));
+
+  let loaded = 0;
+  for (const result of results) {
+    if (result.status !== 'fulfilled') continue;
+    const { text, hf } = result.value;
+    const har = parseHAR(text, hf.filename);
+    if (!har) continue;
+
+    // FUV à la latitude exacte du port
+    const portFUV = computeAllFUV(T0_ORD, har.lat);
+    const port = preparePort(har, portFUV, T0_ORD);
+    PORTS.push(port);
+    loaded++;
+  }
+
+  loadMsg.textContent = `${loaded} ports chargés. Initialisation de la carte…`;
+  await new Promise(r => setTimeout(r, 10));
+
+  initMap();
+  document.getElementById('loading').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CARTE LEAFLET
+// ═══════════════════════════════════════════════════════════════
+
+let map;
+let activeChart = null;
+let activePortIdx = null;
+let activeDayOffset = 0;
+
+function dateForOffset(off) {
+  return new Date(T0.getTime() + off * 86400000);
+}
+function dateLabel(off) {
+  return dateForOffset(off).toLocaleDateString('fr-FR', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+  });
+}
+function dateISO(off) {
+  return dateForOffset(off).toISOString().slice(0, 10);
+}
+
+function makeIcon(color) {
+  return L.divIcon({
+    className: '',
+    html: `<svg width="20" height="28" viewBox="0 0 20 28">
+      <path d="M10 0C4.5 0 0 4.5 0 10c0 7.5 10 18 10 18s10-10.5 10-18C20 4.5 15.5 0 10 0z"
+            fill="${color}" stroke="#fff" stroke-width="1.5"/>
+      <circle cx="10" cy="10" r="4" fill="#fff"/>
+    </svg>`,
+    iconSize: [20, 28], iconAnchor: [10, 28], popupAnchor: [0, -28],
+  });
+}
+
+function initMap() {
+  const greenIcon = makeIcon('#2d8a4e');
+  const redIcon   = makeIcon('#c0392b');
+
+  map = L.map('map').setView([47.5, -2.5], 6);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap', maxZoom: 18,
+  }).addTo(map);
+
+  PORTS.forEach((port, idx) => {
+    const icon = port.buggy ? redIcon : greenIcon;
+    const marker = L.marker([port.lat, port.lon], { icon }).addTo(map);
+    marker.bindPopup('', { maxWidth: 660, minWidth: 620 });
+
+    marker.on('popupopen', function() {
+      const buggyTag = port.buggy
+        ? '<span class="buggy-tag"> ⚠ BUGGY</span>' : '';
+      const content = `
+        <div class="popup-content">
+          <h3>${port.nom}${buggyTag}</h3>
+          <div class="info">
+            ${port.lat.toFixed(3)}°N, ${port.lon.toFixed(3)}°
+            &nbsp;|&nbsp; Z0 = ${port.z0.toFixed(2)} m
+            &nbsp;|&nbsp; ${port.c.length} harmoniques
+            &nbsp;|&nbsp; <span style="font-size:11px;color:#999">${port.filename}</span>
+          </div>
+          <div class="nav-bar">
+            <button onclick="renderChart(${idx}, activeDayOffset - 1)">◀</button>
+            <span class="date-label" id="date-lbl-${idx}">${dateLabel(0)}</span>
+            <button onclick="renderChart(${idx}, activeDayOffset + 1)">▶</button>
+          </div>
+          <div class="extremes-list" id="extremes-${idx}"></div>
+          <div class="chart-wrap"><canvas id="chart-${idx}"></canvas></div>
+        </div>
+      `;
+      marker.getPopup().setContent(content);
+      activePortIdx = idx;
+      activeDayOffset = 0;
+      setTimeout(() => renderChart(idx, 0), 50);
+    });
+
+    marker.on('popupclose', function() {
+      if (activeChart) { activeChart.destroy(); activeChart = null; }
+      activePortIdx = null;
+    });
+  });
+
+  // Légende
+  const legend = L.control({ position: 'bottomright' });
+  legend.onAdd = function() {
+    const div = L.DomUtil.create('div', 'legend');
+    const nOK  = PORTS.filter(p => !p.buggy).length;
+    const nBug = PORTS.filter(p => p.buggy).length;
+    div.innerHTML = `
+      <b>Ports de marée</b><br>
+      <i class="green"></i> OK (${nOK})<br>
+      ${nBug > 0 ? '<i class="red"></i> Buggy (' + nBug + ')<br>' : ''}
+      <span style="font-size:11px;color:#888">Clic = courbe &nbsp;◀ ▶ = jour</span>
+    `;
+    return div;
+  };
+  legend.addTo(map);
+
+  if (PORTS.length > 0) {
+    map.fitBounds(
+      L.latLngBounds(PORTS.map(p => [p.lat, p.lon])),
+      { padding: [30, 30] }
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDU DU GRAPHIQUE (Chart.js)
+// ═══════════════════════════════════════════════════════════════
+
+function renderChart(idx, dayOffset) {
+  const port = PORTS[idx];
+  const canvasId = 'chart-' + idx;
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  if (activeChart) { activeChart.destroy(); activeChart = null; }
+
+  activeDayOffset = dayOffset;
+  activePortIdx = idx;
+
+  const dateEl = document.getElementById('date-lbl-' + idx);
+  if (dateEl) dateEl.textContent = dateLabel(dayOffset);
+
+  const { times, heights } = predict(port, dayOffset);
+  const { pm, bm } = findExtremes(times, heights);
+
+  const extEl = document.getElementById('extremes-' + idx);
+  if (extEl) {
+    const all = [
+      ...pm.map(e => ({ ...e, type: 'PM' })),
+      ...bm.map(e => ({ ...e, type: 'BM' })),
+    ].sort((a, b) => a.t - b.t);
+    extEl.innerHTML = all.map(e => {
+      const cls = e.type === 'PM' ? 'pm' : 'bm';
+      const arrow = e.type === 'PM' ? '▲' : '▼';
+      return `<span class="${cls}">${arrow} ${e.type} ${minutesToHHMM(e.t)} — ${e.h.toFixed(2)} m</span>`;
+    }).join('');
+  }
+
+  const iso = dateISO(dayOffset);
+  function minToDate(m) {
+    return new Date(iso + 'T' + pad2(Math.floor(m/60)) + ':' + pad2(m%60) + ':00Z');
+  }
+  const data   = times.map((t, i) => ({ x: minToDate(t), y: heights[i] }));
+  const pmData = pm.map(e => ({ x: minToDate(e.t), y: e.h }));
+  const bmData = bm.map(e => ({ x: minToDate(e.t), y: e.h }));
+
+  const mainColor = port.buggy ? '#c0392b' : '#2d8a4e';
+  const bgColor   = port.buggy ? 'rgba(192,57,43,0.08)' : 'rgba(45,138,78,0.08)';
+
+  const crosshairPlugin = {
+    id: 'crosshair',
+    afterDraw(chart) {
+      if (chart.tooltip?._active?.length) {
+        const x = chart.tooltip._active[0].element.x;
+        const yAxis = chart.scales.y;
+        const c2 = chart.ctx;
+        c2.save();
+        c2.beginPath();
+        c2.moveTo(x, yAxis.top);
+        c2.lineTo(x, yAxis.bottom);
+        c2.lineWidth = 1;
+        c2.strokeStyle = 'rgba(0,0,0,0.2)';
+        c2.setLineDash([3, 3]);
+        c2.stroke();
+        c2.restore();
+      }
+    }
+  };
+
+  activeChart = new Chart(ctx, {
+    type: 'line',
+    plugins: [crosshairPlugin],
+    data: {
+      datasets: [
+        {
+          label: 'Hauteur',
+          data: data,
+          borderColor: mainColor,
+          backgroundColor: bgColor,
+          fill: true,
+          pointRadius: 0,
+          pointHitRadius: 8,
+          borderWidth: 2.5,
+          tension: 0.3,
+        },
+        {
+          label: 'Zéro',
+          data: [{ x: data[0].x, y: 0 }, { x: data[data.length-1].x, y: 0 }],
+          borderColor: '#aaa',
+          borderWidth: 1,
+          borderDash: [4, 4],
+          pointRadius: 0,
+          pointHitRadius: 0,
+          fill: false,
+        },
+        {
+          label: 'PM',
+          data: pmData,
+          borderColor: '#d35400',
+          backgroundColor: '#d35400',
+          pointRadius: 7,
+          pointStyle: 'triangle',
+          showLine: false,
+          pointHitRadius: 10,
+        },
+        {
+          label: 'BM',
+          data: bmData,
+          borderColor: '#2980b9',
+          backgroundColor: '#2980b9',
+          pointRadius: 7,
+          pointStyle: 'triangle',
+          pointRotation: 180,
+          showLine: false,
+          pointHitRadius: 10,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          labels: {
+            usePointStyle: true,
+            font: { size: 11 },
+            padding: 12,
+            filter: item => item.text !== 'Zéro',
+          },
+        },
+        tooltip: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false,
+          filter: item => item.dataset.label !== 'Zéro',
+          callbacks: {
+            title: items => {
+              if (!items.length) return '';
+              const d = new Date(items[0].parsed.x);
+              return pad2(d.getUTCHours()) + 'h' + pad2(d.getUTCMinutes()) + ' UTC';
+            },
+            label: ctx => {
+              if (ctx.dataset.label === 'PM')
+                return '▲ PM : ' + ctx.parsed.y.toFixed(2) + ' m';
+              if (ctx.dataset.label === 'BM')
+                return '▼ BM : ' + ctx.parsed.y.toFixed(2) + ' m';
+              return ctx.parsed.y.toFixed(2) + ' m';
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'hour', stepSize: 2, displayFormats: { hour: 'HH:mm' } },
+          ticks: {
+            font: { size: 11 },
+            maxRotation: 0,
+            callback: function(v) {
+              return pad2(new Date(v).getUTCHours()) + 'h';
+            },
+          },
+          grid: { color: 'rgba(0,0,0,0.06)' },
+        },
+        y: {
+          title: { display: true, text: 'Hauteur (m / ZC)', font: { size: 12 } },
+          ticks: { font: { size: 11 } },
+          grid: { color: 'rgba(0,0,0,0.06)' },
+        },
+      },
+    },
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DÉMARRAGE
+// ═══════════════════════════════════════════════════════════════
+init().catch(err => {
+  console.error('Erreur init:', err);
+  document.getElementById('loading-msg').textContent = 'Erreur : ' + err.message;
+});
+</script>
+</body>
+</html>
