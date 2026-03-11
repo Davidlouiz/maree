@@ -636,31 +636,55 @@ function preparePort(harData, FUV_all, t0_ord) {
 function predict(port, dayOffset) {
   const STEP = 10;
   const N = 24 * 60 / STEP + 1;
-  const baseH = dayOffset * 24 - localUtcOffsetHoursForDay(dayOffset);
-  const DEG2RAD = Math.PI / 180;
-  const nc = port.c.length;
   const times = new Array(N);
   const heights = new Array(N);
   for (let i = 0; i < N; i++) {
-    const dt = baseH + i * STEP / 60;
-    let h = port.z0;
-    for (let j = 0; j < nc; j++) {
-      const c = port.c[j];
-      h += c.a * Math.cos((c.w * dt + c.p) * DEG2RAD);
-    }
-    times[i] = i * STEP;
+    const minute = i * STEP;
+    const h = harmonicHeightAtMinute(port, dayOffset, minute);
+    times[i] = minute;
     heights[i] = Math.round(h * 1000) / 1000;
   }
   return { times, heights };
 }
 
-function findExtremes(times, heights) {
+function harmonicHeightAtMinute(port, dayOffset, minuteLocal) {
+  const baseH = dayOffset * 24 - localUtcOffsetHoursForDay(dayOffset);
+  const dt = baseH + minuteLocal / 60;
+  const DEG2RAD = Math.PI / 180;
+  const nc = port.c.length;
+  let h = port.z0;
+  for (let j = 0; j < nc; j++) {
+    const c = port.c[j];
+    h += c.a * Math.cos((c.w * dt + c.p) * DEG2RAD);
+  }
+  return h;
+}
+
+function findExtremes(port, dayOffset, times, heights) {
   const pm = [], bm = [];
+  const stepMin = times.length > 1 ? Math.max(1, Math.round(times[1] - times[0])) : 10;
   for (let i = 1; i < heights.length - 1; i++) {
-    if (heights[i] > heights[i-1] && heights[i] >= heights[i+1])
-      pm.push({ t: times[i], h: heights[i] });
-    else if (heights[i] < heights[i-1] && heights[i] <= heights[i+1])
-      bm.push({ t: times[i], h: heights[i] });
+    const isPeak = heights[i] > heights[i-1] && heights[i] >= heights[i+1];
+    const isTrough = heights[i] < heights[i-1] && heights[i] <= heights[i+1];
+    if (!isPeak && !isTrough) continue;
+
+    const center = times[i];
+    const tStart = Math.max(0, center - stepMin);
+    const tEnd = Math.min(1440, center + stepMin);
+    let bestT = center;
+    let bestH = harmonicHeightAtMinute(port, dayOffset, center);
+
+    for (let t = tStart; t <= tEnd; t += 1) {
+      const h = harmonicHeightAtMinute(port, dayOffset, t);
+      if ((isPeak && h > bestH) || (isTrough && h < bestH)) {
+        bestH = h;
+        bestT = t;
+      }
+    }
+
+    const extreme = { t: Math.round(bestT), h: Math.round(bestH * 1000) / 1000 };
+    if (isPeak) pm.push(extreme);
+    else bm.push(extreme);
   }
   return { pm, bm };
 }
@@ -995,7 +1019,7 @@ function renderChart(port, dayOffset) {
   const hMargin = (hMax - hMin) * 0.1 || 0.5;
   const yMin = Math.floor((hMin - hMargin) * 10) / 10;
   const yMax = Math.ceil((hMax + hMargin) * 10) / 10;
-  const { pm, bm } = findExtremes(times, heights);
+  const { pm, bm } = findExtremes(port, dayOffset, times, heights);
 
   const extEl = document.getElementById('extremes');
   if (extEl) {
@@ -1019,14 +1043,7 @@ function renderChart(port, dayOffset) {
   if (dayOffset === 0) {
     const now = new Date();
     const nowLocalMin = now.getHours() * 60 + now.getMinutes();
-    const DEG2RAD = Math.PI / 180;
-    const nc = port.c.length;
-    const dt = nowLocalMin / 60 - localUtcOffsetHoursForDay(0);
-    let hNow = port.z0;
-    for (let j = 0; j < nc; j++) {
-      const c = port.c[j];
-      hNow += c.a * Math.cos((c.w * dt + c.p) * DEG2RAD);
-    }
+    let hNow = harmonicHeightAtMinute(port, 0, nowLocalMin);
     hNow = Math.round(hNow * 1000) / 1000;
     waterData = [{ x: data[0].x, y: hNow }, { x: data[data.length-1].x, y: hNow }];
     nowPoint = [{ x: nowLocalMin, y: hNow }];
