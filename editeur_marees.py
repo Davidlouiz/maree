@@ -1,210 +1,223 @@
 #!/usr/bin/env python3
 """
-Génère une carte interactive HTML des ports de marée.
+Éditeur interactif de ports de marée.
 
-Le calcul des marées est entièrement réalisé en JavaScript côté client.
-Le script Python ne fait que :
-  1. Scanner le répertoire des fichiers .har
-  2. Exporter les tables de constantes utide en JSON
-  3. Générer le HTML avec ces données embarquées
+Serveur HTTP qui :
+  1. Génère et sert la page éditeur (même présentation que carte_marees.html)
+  2. Sert les fichiers .har statiques
+  3. Expose une API POST /api/create_har pour générer un nouveau fichier .har
 
-À l'ouverture de la page, le JavaScript :
-  1. Récupère chaque fichier .har via fetch()
-  2. Parse les harmoniques (nom, amplitude, phase, z0, lat/lon)
-  3. Calcule les corrections nodales (F, U, V) via un port fidèle de utide
-  4. Prédit la marée heure par heure et trace la courbe
+Les ports dont le fichier est préfixé « - » sont affichés en bleu (nouveaux).
 
 Usage:
-    python carte_marees.py [--har-dir har_ports] [--output carte_marees.html]
+    python editeur_marees.py [--har-dir har_ports] [--port 8000]
 """
 
 import argparse
+import html
 import json
+import re
 import sys
-import warnings
+import traceback
+import unicodedata
+from datetime import datetime
+from functools import partial
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from maree import _SHOM_TO_UTIDE, _EXTRA_CONSTITUENTS
+
+# Réutilise les fonctions de carte_marees.py et genere_har.py
+from carte_marees import (
+    export_mappings_json,
+    export_utide_json,
+    extract_har_metadata,
+    scan_har_files,
+)
+from genere_har import extract_constituents, find_best_atlas, write_har
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Export des constantes utide pour le moteur JS
+# Utilitaires
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def export_utide_json() -> str:
-    """Exporte les tables utide nécessaires au calcul JS (F, U, V)."""
-    from utide import ut_constants
-
-    c = ut_constants.const
-    s = ut_constants.sat
-    sh = ut_constants.shallow
-
-    constituents = []
-    for i in range(len(c.name)):
-        entry = {
-            "n": c.name[i],
-            "f": round(float(c.freq[i]), 12),
-        }
-        # Doodson numbers only for direct constituents (NaN for shallow water)
-        if not np.isnan(c.doodson[i][0]):
-            entry["d"] = [round(float(x), 2) for x in c.doodson[i]]
-
-        semi = c.semi[i]
-        if not np.isnan(semi) and semi != 0:
-            entry["s"] = round(float(semi), 6)
-
-        ns = c.nshallow[i]
-        if not np.isnan(ns):
-            entry["ns"] = int(ns)
-            entry["is"] = int(c.ishallow[i]) - 1  # 0-based
-
-        constituents.append(entry)
-
-    satellites = []
-    for i in range(len(s.iconst)):
-        satellites.append(
-            [
-                int(s.iconst[i]) - 1,
-                [round(float(x), 2) for x in s.deldood[i]],
-                round(float(s.phcorr[i]), 6),
-                round(float(s.amprat[i]), 8),
-                int(s.ilatfac[i]),
-            ]
-        )
-
-    shallows = []
-    for i in range(len(sh.iname)):
-        shallows.append(
-            [
-                int(sh.iname[i]) - 1,
-                round(float(sh.coef[i]), 6),
-            ]
-        )
-
-    return json.dumps(
-        {
-            "c": constituents,
-            "s": satellites,
-            "sh": shallows,
-            "nf": len(c.isat),
-        },
-        separators=(",", ":"),
-    )
+def safe_filename(nom: str) -> str:
+    """Transforme un nom en nom de fichier sûr (sans accents, espaces → tirets)."""
+    # Décomposition Unicode, suppression des accents
+    nfkd = unicodedata.normalize("NFKD", nom)
+    ascii_name = nfkd.encode("ascii", "ignore").decode("ascii")
+    # Remplacements
+    ascii_name = ascii_name.replace(" ", "-").replace("'", "-").replace("/", "-")
+    ascii_name = re.sub(r"[^a-zA-Z0-9\-]", "", ascii_name)
+    ascii_name = re.sub(r"-+", "-", ascii_name).strip("-")
+    return ascii_name
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Export des mappings SHOM → utide et constituants extra
+# Génération du HTML éditeur
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def export_mappings_json() -> tuple[str, str]:
-    """Exporte _SHOM_TO_UTIDE et _EXTRA_CONSTITUENTS en JSON."""
-    shom = {}
-    for k, v in _SHOM_TO_UTIDE.items():
-        if v is None:
-            shom[k] = None
-        elif v != k:
-            shom[k] = v
-
-    extra = {}
-    for k, (speed, decomp) in _EXTRA_CONSTITUENTS.items():
-        extra[k] = {
-            "w": round(speed, 8),
-            "d": [[pname, coef] for pname, coef in decomp],
-        }
+def generate_editor_html(har_dir: str) -> str:
+    """Génère le HTML de l'éditeur de marées."""
+    har_files = scan_har_files(har_dir)
+    utide_json = export_utide_json()
+    shom_json, extra_json = export_mappings_json()
+    har_files_json = json.dumps(har_files, ensure_ascii=False, separators=(",", ":"))
 
     return (
-        json.dumps(shom, separators=(",", ":")),
-        json.dumps(extra, separators=(",", ":")),
+        EDITOR_HTML_TEMPLATE.replace("__UTIDE_JSON__", utide_json)
+        .replace("__SHOM_JSON__", shom_json)
+        .replace("__EXTRA_JSON__", extra_json)
+        .replace("__HAR_DIR__", har_dir)
+        .replace("__HAR_FILES_JSON__", har_files_json)
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Scan des fichiers HAR
+# Serveur HTTP
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def extract_har_metadata(filepath: Path) -> dict | None:
-    """Extrait nom, lat, lon, z0 depuis un fichier .har (section [port] uniquement)."""
-    nom = filepath.stem
-    lat = lon = z0 = None
-    section = None
-    with open(filepath, "r", encoding="utf-8") as fh:
-        for raw in fh:
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("[") and line.endswith("]"):
-                section = line[1:-1].lower()
-                if section != "port":
-                    if lat is not None and lon is not None:
-                        break  # on a déjà tout
-                continue
-            if section == "port" and "=" in line:
-                k, v = line.split("=", 1)
-                k = k.strip().lower()
-                v = v.strip()
-                if k == "nom":
-                    nom = v
-                elif k == "latitude":
-                    lat = float(v)
-                elif k == "longitude":
-                    lon = float(v)
-                elif k == "z0":
-                    z0 = float(v)
-    if lat is None or lon is None:
-        return None
-    return {
-        "nom": nom,
-        "lat": round(lat, 6),
-        "lon": round(lon, 6),
-        "z0": round(z0 or 0, 4),
-    }
+class EditorHandler(SimpleHTTPRequestHandler):
+    """Gestionnaire HTTP : sert l'éditeur + API de création HAR."""
 
+    har_dir = "har_ports"
+    atlas_base = "MARC_L1-ATLAS-AHRMONIQUES"
 
-def scan_har_files(har_dir: str) -> list[dict]:
-    """Scanne le répertoire HAR et retourne la liste des fichiers avec métadonnées."""
-    har_path = Path(har_dir)
-    if not har_path.exists():
-        print(f"Répertoire {har_dir} introuvable")
-        sys.exit(1)
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
 
-    files = []
-    seen = set()
-    for f in sorted(har_path.glob("*.har")):
-        if f.name not in seen:
-            seen.add(f.name)
-            meta = extract_har_metadata(f)
-            if meta is None:
-                print(f"  ⚠ {f.name} : coordonnées manquantes, ignoré")
-                continue
-            files.append(
-                {
-                    "filename": f.name,
-                    "buggy": f.name.startswith("_"),
-                    "nom": meta["nom"],
-                    "lat": meta["lat"],
-                    "lon": meta["lon"],
-                    "z0": meta["z0"],
-                }
+        if path in ("/", "/editeur_marees.html", "/index.html"):
+            # Génère et sert le HTML éditeur
+            try:
+                body = generate_editor_html(self.har_dir).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                self._send_error(500, str(e))
+            return
+
+        if path == "/api/list_ports":
+            # Retourne la liste des ports actuels
+            try:
+                har_files = scan_har_files(self.har_dir)
+                body = json.dumps(har_files, ensure_ascii=False).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                self._send_error(500, str(e))
+            return
+
+        # Servir les fichiers statiques normalement
+        super().do_GET()
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+
+        if parsed.path == "/api/create_har":
+            self._handle_create_har()
+            return
+
+        self._send_error(404, "Endpoint inconnu")
+
+    def _handle_create_har(self):
+        """Crée un fichier .har pour un nouveau port."""
+        try:
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len)
+            data = json.loads(body.decode("utf-8"))
+
+            nom = data.get("nom", "").strip()
+            lat = float(data.get("lat", 0))
+            lon = float(data.get("lon", 0))
+
+            if not nom:
+                self._send_json(400, {"error": "Nom requis"})
+                return
+
+            # Nom de fichier : préfixé avec -
+            fname = "-" + safe_filename(nom) + ".har"
+            filepath = Path(self.har_dir) / fname
+
+            if filepath.exists():
+                self._send_json(409, {"error": f"Le fichier {fname} existe déjà"})
+                return
+
+            # Trouver le meilleur atlas
+            print(f"[API] Création HAR pour '{nom}' ({lat:.4f}, {lon:.4f})...")
+            atlas_dir = find_best_atlas(self.atlas_base, lat, lon)
+            print(f"  → Atlas : {Path(atlas_dir).name}")
+
+            # Extraire les constituants
+            constituents, atlas_name, actual_lat, actual_lon = extract_constituents(
+                atlas_dir, lat, lon
             )
-    return files
+            print(
+                f"  → {len(constituents)} constituants, point ({actual_lat:.4f}, {actual_lon:.4f})"
+            )
+
+            # Écrire le fichier HAR
+            write_har(str(filepath), nom, lat, lon, constituents, atlas_name)
+            print(f"  → Fichier créé : {filepath}")
+
+            # Lire les métadonnées
+            meta = extract_har_metadata(filepath)
+
+            result = {
+                "ok": True,
+                "filename": fname,
+                "nom": meta["nom"],
+                "lat": meta["lat"],
+                "lon": meta["lon"],
+                "z0": meta["z0"],
+            }
+            self._send_json(200, result)
+
+        except Exception as e:
+            traceback.print_exc()
+            self._send_json(500, {"error": str(e)})
+
+    def _send_json(self, code, obj):
+        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_error(self, code, message):
+        self._send_json(code, {"error": message})
+
+    def log_message(self, format, *args):
+        # Filtrer les logs trop verbeux des fichiers statiques
+        msg = format % args
+        if "/har_ports/" not in msg and "/api/" not in msg:
+            return
+        super().log_message(format, *args)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Template HTML
+# Template HTML éditeur
 # ─────────────────────────────────────────────────────────────────────────────
 
-HTML_TEMPLATE = r"""<!DOCTYPE html>
+EDITOR_HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Carte des marées — Ports de France</title>
+<title>Éditeur de marées — Ports de France</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
@@ -225,6 +238,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   #tide-panel .info a { color: #2d8a4e; text-decoration: none; }
   #tide-panel .info a:hover { text-decoration: underline; }
   .buggy-tag { color: #c00; font-weight: bold; }
+  .new-tag { color: #2563eb; font-weight: bold; }
 
   #close-panel {
     position: absolute; top: 6px; right: 10px;
@@ -268,9 +282,65 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
   .legend .green { background: #2d8a4e; }
   .legend .red { background: #c0392b; }
+  .legend .blue { background: #2563eb; }
+
+  /* Mode ajout */
+  .add-mode-banner {
+    position: fixed; top: 0; left: 0; right: 0;
+    background: #2563eb; color: #fff; text-align: center;
+    padding: 8px 16px; font-size: 14px; font-weight: 600;
+    z-index: 2000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  .add-mode-banner button {
+    margin-left: 16px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.5);
+    color: #fff; padding: 4px 14px; border-radius: 4px; cursor: pointer; font-size: 13px;
+  }
+  .add-mode-banner button:hover { background: rgba(255,255,255,0.35); }
+
+  /* Bouton Ajouter */
+  .add-port-btn {
+    background: #2563eb; color: #fff; border: 2px solid #fff;
+    border-radius: 6px; padding: 6px 14px; font-size: 13px; font-weight: 600;
+    cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
+  .add-port-btn:hover { background: #1d4ed8; }
+
+  /* Modal */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    z-index: 3000; align-items: center; justify-content: center;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: #fff; border-radius: 10px; padding: 24px; min-width: 360px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  }
+  .modal h3 { margin: 0 0 12px; font-size: 18px; color: #333; }
+  .modal label { font-size: 13px; color: #555; display: block; margin-bottom: 4px; }
+  .modal input {
+    width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 5px;
+    font-size: 14px; margin-bottom: 12px;
+  }
+  .modal input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.2); }
+  .modal .coords { font-size: 12px; color: #888; margin-bottom: 12px; }
+  .modal .btn-row { display: flex; gap: 8px; justify-content: flex-end; }
+  .modal .btn-row button {
+    padding: 8px 18px; border: none; border-radius: 5px; font-size: 14px; cursor: pointer;
+  }
+  .modal .btn-cancel { background: #eee; color: #333; }
+  .modal .btn-cancel:hover { background: #ddd; }
+  .modal .btn-ok { background: #2563eb; color: #fff; font-weight: 600; }
+  .modal .btn-ok:hover { background: #1d4ed8; }
+  .modal .btn-ok:disabled { background: #93c5fd; cursor: not-allowed; }
+  .modal .status { font-size: 12px; color: #666; margin-top: 8px; min-height: 18px; }
+  .modal .status.error { color: #c00; }
 </style>
 </head>
 <body>
+<div id="add-banner" class="add-mode-banner" style="display:none">
+  Cliquez sur la carte pour placer le nouveau port
+  <button onclick="cancelAddMode()">Annuler</button>
+</div>
 <div id="tide-panel">
   <button id="close-panel" onclick="closePanel()">✕</button>
   <h3 id="port-title"></h3>
@@ -284,35 +354,38 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <div class="chart-wrap"><canvas id="tide-chart"></canvas></div>
 </div>
 <div id="map"></div>
+
+<!-- Modal de création -->
+<div id="add-modal" class="modal-overlay">
+  <div class="modal">
+    <h3>Ajouter un port</h3>
+    <div class="coords" id="modal-coords"></div>
+    <label for="modal-nom">Nom du port</label>
+    <input type="text" id="modal-nom" placeholder="Ex: Saint-Malo" autofocus />
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+      <button class="btn-ok" id="modal-ok" onclick="confirmAddPort()">Créer</button>
+    </div>
+    <div class="status" id="modal-status"></div>
+  </div>
+</div>
+
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  CONSTANTES UTIDE (exportées depuis la bibliothèque Python utide)
-//  c[i] = {n:name, f:freq_cph, d:doodson[6], s?:semi, ns?:nshallow, is?:ishallow}
-//  s[i] = [iconst, deldood[3], phcorr, amprat, ilatfac]
-//  sh[i] = [iname, coef]
+//  CONSTANTES UTIDE
 // ═══════════════════════════════════════════════════════════════
 const UTIDE = __UTIDE_JSON__;
 
-// ═══════════════════════════════════════════════════════════════
-//  MAPPING NOMS SHOM → UTIDE  +  CONSTITUANTS EXTRA
-// ═══════════════════════════════════════════════════════════════
 const SHOM_TO_UTIDE = __SHOM_JSON__;
 const EXTRA_CONSTITUENTS = __EXTRA_JSON__;
 
-// ═══════════════════════════════════════════════════════════════
-//  LISTE DES FICHIERS HAR
-// ═══════════════════════════════════════════════════════════════
 const HAR_DIR = '__HAR_DIR__';
-const HAR_FILES = __HAR_FILES_JSON__;
+let HAR_FILES = __HAR_FILES_JSON__;
 
-// ═══════════════════════════════════════════════════════════════
-//  INDEX DES NOMS UTIDE
-// ═══════════════════════════════════════════════════════════════
 const UTIDE_NAMES = UTIDE.c.map(c => c.n);
 const UTIDE_NAME_IDX = {};
 UTIDE_NAMES.forEach((n, i) => UTIDE_NAME_IDX[n] = i);
 
-// Pré-calcul : quels constituants sont « shallow water »
 const NCONST = UTIDE.c.length;
 const IS_SHALLOW = new Array(NCONST);
 for (let i = 0; i < NCONST; i++) {
@@ -320,23 +393,15 @@ for (let i = 0; i < NCONST; i++) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  ASTRONOMIE  (port fidèle de utide/astronomy.py ut_astron)
-//
-//  Calcule les 6 arguments astronomiques fondamentaux (en cycles) :
-//    tau = temps lunaire
-//    s   = longitude moyenne de la Lune
-//    h   = longitude moyenne du Soleil
-//    p   = longitude du périgée lunaire
-//    np  = -longitude du nœud ascendant lunaire
-//    pp  = longitude du périhélie solaire
+//  ASTRONOMIE
 // ═══════════════════════════════════════════════════════════════
 
 const _ASTRO_COEFS = [
-  [270.434164, 13.1763965268, -0.0000850,  0.000000039],   // s
-  [279.696678,  0.9856473354,  0.00002267, 0.000000000],   // h
-  [334.329556,  0.1114040803, -0.0007739, -0.00000026],    // p
-  [-259.183275, 0.0529539222, -0.0001557, -0.000000050],   // np
-  [281.220844,  0.0000470684,  0.0000339,  0.000000070],   // pp
+  [270.434164, 13.1763965268, -0.0000850,  0.000000039],
+  [279.696678,  0.9856473354,  0.00002267, 0.000000000],
+  [334.329556,  0.1114040803, -0.0007739, -0.00000026],
+  [-259.183275, 0.0529539222, -0.0001557, -0.000000050],
+  [281.220844,  0.0000470684,  0.0000339,  0.000000070],
 ];
 
 function utAstron(jd) {
@@ -345,78 +410,52 @@ function utAstron(jd) {
   const D = d / 10000;
   const D2 = D * D;
   const D3 = D2 * D;
-
   const astro = new Float64Array(6);
   const ader  = new Float64Array(6);
-
-  // Compute s, h, p, np, pp (indices 1..5 in astro)
   for (let i = 0; i < 5; i++) {
     const c = _ASTRO_COEFS[i];
     const val = c[0] + c[1] * d + c[2] * D2 + c[3] * D3;
     astro[i + 1] = (val / 360) % 1;
-
     const dval = c[1] + c[2] * 2e-4 * D + c[3] * 3e-4 * D2;
     ader[i + 1] = dval / 360;
   }
-
-  // tau = fractional day + h - s
   astro[0] = (jd % 1) + astro[2] - astro[1];
   ader[0] = 1.0 + ader[2] - ader[1];
-
   return { astro, ader };
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  CALCUL FUV  (port fidèle de utide/harmonics.py FUV)
-//
-//  Calcule pour chaque constituant utide (146) à l'instant t_ord :
-//    F = correction nodale d'amplitude (sans unité)
-//    U = correction nodale de phase (cycles)
-//    V = argument astronomique de Greenwich (cycles)
-//
-//  Équivalent à ngflgs = [0,0,0,0] (exact nodsat + exact Greenwich)
+//  CALCUL FUV
 // ═══════════════════════════════════════════════════════════════
 
 function computeAllFUV(t_ord, lat) {
   const { astro } = utAstron(t_ord);
   const TWO_PI = 2 * Math.PI;
-
-  // ── Corrections nodales (F, U) via satellites ──
   if (Math.abs(lat) < 5) lat = Math.sign(lat || 1) * 5;
   const slat = Math.sin(lat * Math.PI / 180);
-
   const sats = UTIDE.s;
   const nsat = sats.length;
-
-  // Accumuler les contributions satellites dans F (complexe)
   const Fr = new Float64Array(NCONST).fill(1);
   const Fi = new Float64Array(NCONST).fill(0);
-
   for (let i = 0; i < nsat; i++) {
-    let r = sats[i][3];  // amprat
+    let r = sats[i][3];
     const ilatfac = sats[i][4];
     if (ilatfac === 1) r *= 0.36309 * (1.0 - 5.0 * slat * slat) / slat;
     else if (ilatfac === 2) r *= 2.59808 * slat;
-
-    // Phase satellite: dot(deldood, astro[3:6]) + phcorr, en cycles
     const dd = sats[i][1];
     let u = dd[0] * astro[3] + dd[1] * astro[4] + dd[2] * astro[5] + sats[i][2];
-    u = u % 1;  // fmod (rem)
-
+    u = u % 1;
     const angle = TWO_PI * u;
-    const ic = sats[i][0];  // iconst, 0-based
+    const ic = sats[i][0];
     Fr[ic] += r * Math.cos(angle);
     Fi[ic] += r * Math.sin(angle);
   }
-
   const F = new Float64Array(NCONST);
   const U = new Float64Array(NCONST);
   for (let i = 0; i < NCONST; i++) {
     F[i] = Math.sqrt(Fr[i] * Fr[i] + Fi[i] * Fi[i]);
-    U[i] = Math.atan2(Fi[i], Fr[i]) / TWO_PI;  // cycles
+    U[i] = Math.atan2(Fi[i], Fr[i]) / TWO_PI;
   }
-
-  // Shallow water : F et U dérivés des parents
   const shData = UTIDE.sh;
   for (let i = 0; i < NCONST; i++) {
     const ci = UTIDE.c[i];
@@ -433,11 +472,7 @@ function computeAllFUV(t_ord, lat) {
     F[i] = fProd;
     U[i] = uSum;
   }
-
-  // ── Argument astronomique V ──
   const V = new Float64Array(NCONST);
-
-  // Constituants directs : V = dot(doodson, astro) + semi
   for (let i = 0; i < NCONST; i++) {
     if (IS_SHALLOW[i]) continue;
     const ci = UTIDE.c[i];
@@ -447,8 +482,6 @@ function computeAllFUV(t_ord, lat) {
     v = v % 1;
     V[i] = v;
   }
-
-  // Shallow water : V dérivé des parents
   for (let i = 0; i < NCONST; i++) {
     const ci = UTIDE.c[i];
     if (ci.ns === undefined) continue;
@@ -462,12 +495,11 @@ function computeAllFUV(t_ord, lat) {
     }
     V[i] = v;
   }
-
   return { F, U, V };
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  PARSEUR DE FICHIERS .har
+//  PARSEUR .har
 // ═══════════════════════════════════════════════════════════════
 
 function parseHAR(text, filename) {
@@ -476,7 +508,6 @@ function parseHAR(text, filename) {
   let nom = filename.replace(/\.har$/, '');
   let lat = null, lon = null, z0 = null;
   const constituents = {};
-
   for (const raw of lines) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
@@ -503,15 +534,12 @@ function parseHAR(text, filename) {
       }
     }
   }
-
   if (lat === null || lon === null) return null;
   return { nom, lat, lon, z0, constituents, filename };
 }
 
 // ═══════════════════════════════════════════════════════════════
 //  PRÉPARATION D'UN PORT
-//  Mappe les noms SHOM → indices utide, calcule les harmoniques
-//  effectives (amplitude et phase pré-corrigées à t0).
 // ═══════════════════════════════════════════════════════════════
 
 function resolveUtideName(shomName) {
@@ -521,7 +549,7 @@ function resolveUtideName(shomName) {
 }
 
 function datetimeToOrdinal(date) {
-  const epochOrdinal = 719163;  // ordinal Python de 1970-01-01
+  const epochOrdinal = 719163;
   return epochOrdinal + date.getTime() / 86400000;
 }
 
@@ -532,25 +560,18 @@ function ordinalToJD(ordinal) {
 function preparePort(harData, FUV_all, t0_ord) {
   const DEG = 360;
   const cList = [];
-
   const jd0 = ordinalToJD(t0_ord);
   const t0_hours_j2000 = (jd0 - 2451545.0) * 24.0;
-
-  // Cache des données FUV des parents (pour les constituants extra)
   const parentCache = {};
 
   for (const [shomName, [amp, phaseG]] of Object.entries(harData.constituents)) {
     if (shomName === 'Z0') continue;
-
     const utideName = resolveUtideName(shomName);
-
-    // ── Constituant utide connu ──
     if (utideName !== null && UTIDE_NAME_IDX.hasOwnProperty(utideName)) {
       const idx = UTIDE_NAME_IDX[utideName];
-      const speed = UTIDE.c[idx].f * DEG;  // cycles/h → °/h
+      const speed = UTIDE.c[idx].f * DEG;
       const effAmp = FUV_all.F[idx] * amp;
       const effPhase = FUV_all.V[idx] * DEG + FUV_all.U[idx] * DEG - phaseG;
-
       if (effAmp > 1e-7) {
         cList.push({ w: speed, a: effAmp, p: effPhase });
       }
@@ -561,13 +582,10 @@ function preparePort(harData, FUV_all, t0_ord) {
       };
       continue;
     }
-
-    // ── Constituant extra (hors utide) ──
     if (EXTRA_CONSTITUENTS.hasOwnProperty(shomName)) {
       const extra = EXTRA_CONSTITUENTS[shomName];
       const speed = extra.w;
       const decomp = extra.d;
-
       let V_c = 0, U_c = 0, f_c = 1;
       if (decomp.length > 0) {
         for (const [pname, coef] of decomp) {
@@ -590,7 +608,6 @@ function preparePort(harData, FUV_all, t0_ord) {
         V_c = speed * t0_hours_j2000;
         f_c = 1.0;
       }
-
       const effAmp = f_c * amp;
       const effPhase = V_c + U_c - phaseG;
       if (effAmp > 1e-7) {
@@ -598,7 +615,6 @@ function preparePort(harData, FUV_all, t0_ord) {
       }
       continue;
     }
-    // Constituant inconnu → ignoré
   }
 
   return {
@@ -608,6 +624,7 @@ function preparePort(harData, FUV_all, t0_ord) {
     z0: harData.z0 || 0,
     filename: harData.filename,
     buggy: harData.filename.startsWith('_'),
+    isNew: harData.filename.startsWith('-'),
     c: cList,
   };
 }
@@ -624,7 +641,6 @@ function predict(port, dayOffset) {
   const nc = port.c.length;
   const times = new Array(N);
   const heights = new Array(N);
-
   for (let i = 0; i < N; i++) {
     const dt = baseH + i * STEP / 60;
     let h = port.z0;
@@ -656,15 +672,20 @@ function minutesToHHMM(m) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  CHARGEMENT & LAZY-LOADING
+//  CHARGEMENT & STATE
 // ═══════════════════════════════════════════════════════════════
 
-const PORT_CACHE = {};   // filename → prepared port object
+const PORT_CACHE = {};
 let activePort = null;
 let activeDayOffset = 0;
 let activeChart = null;
 let map;
 let T0, T0_ORD;
+
+// Éditeur : état ajout
+let addMode = false;
+let addLatLng = null;
+let allMarkers = [];
 
 function init() {
   const now = new Date();
@@ -710,6 +731,7 @@ function makeIcon(color) {
 function initMap() {
   const greenIcon = makeIcon('#2d8a4e');
   const redIcon   = makeIcon('#c0392b');
+  const blueIcon  = makeIcon('#2563eb');
 
   map = L.map('map').setView([47.5, -2.5], 6);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -717,26 +739,41 @@ function initMap() {
   }).addTo(map);
 
   HAR_FILES.forEach((hf, idx) => {
-    const icon = hf.buggy ? redIcon : greenIcon;
+    const icon = hf.filename.startsWith('-') ? blueIcon
+               : hf.buggy ? redIcon : greenIcon;
     const marker = L.marker([hf.lat, hf.lon], { icon }).addTo(map);
-    marker.on('click', () => selectPort(idx));
+    marker.on('click', () => {
+      if (addMode) return;
+      selectPort(idx);
+    });
+    allMarkers.push(marker);
   });
 
-  // Légende
+  // Clic sur la carte en mode ajout
+  map.on('click', (e) => {
+    if (!addMode) return;
+    addLatLng = e.latlng;
+    openModal(e.latlng.lat, e.latlng.lng);
+  });
+
+  // Légende + bouton Ajouter
   const legend = L.control({ position: 'bottomright' });
   legend.onAdd = function() {
     const div = L.DomUtil.create('div', 'legend');
-    const nOK  = HAR_FILES.filter(p => !p.buggy).length;
-    const nBug = HAR_FILES.filter(p => p.buggy).length;
-    div.innerHTML = `
-      <b>Ports de marée (${HAR_FILES.length})</b><br>
-      <i class="green"></i> OK (${nOK})<br>
-      ${nBug > 0 ? '<i class="red"></i> Buggy (' + nBug + ')<br>' : ''}
-      <span style="font-size:11px;color:#888">Clic = courbe &nbsp;◀ ▶ = jour</span>
-    `;
+    updateLegend(div);
     return div;
   };
   legend.addTo(map);
+
+  // Bouton Ajouter
+  const addCtrl = L.control({ position: 'topright' });
+  addCtrl.onAdd = function() {
+    const div = L.DomUtil.create('div');
+    div.innerHTML = '<button class="add-port-btn" onclick="enterAddMode()">+ Ajouter un port</button>';
+    L.DomEvent.disableClickPropagation(div);
+    return div;
+  };
+  addCtrl.addTo(map);
 
   if (HAR_FILES.length > 0) {
     map.fitBounds(
@@ -746,8 +783,142 @@ function initMap() {
   }
 }
 
+function updateLegend(div) {
+  if (!div) div = document.querySelector('.legend');
+  if (!div) return;
+  const nOK  = HAR_FILES.filter(p => !p.buggy && !p.filename.startsWith('-')).length;
+  const nBug = HAR_FILES.filter(p => p.buggy).length;
+  const nNew = HAR_FILES.filter(p => p.filename.startsWith('-')).length;
+  div.innerHTML = `
+    <b>Ports de marée (${HAR_FILES.length})</b><br>
+    <i class="green"></i> OK (${nOK})<br>
+    ${nBug > 0 ? '<i class="red"></i> Buggy (' + nBug + ')<br>' : ''}
+    ${nNew > 0 ? '<i class="blue"></i> Nouveaux (' + nNew + ')<br>' : ''}
+    <span style="font-size:11px;color:#888">Clic = courbe &nbsp;◀ ▶ = jour</span>
+  `;
+}
+
 // ═══════════════════════════════════════════════════════════════
-//  SÉLECTION D'UN PORT (chargement à la demande)
+//  MODE AJOUT
+// ═══════════════════════════════════════════════════════════════
+
+function enterAddMode() {
+  addMode = true;
+  document.getElementById('add-banner').style.display = 'block';
+  document.getElementById('map').style.cursor = 'crosshair';
+}
+
+function cancelAddMode() {
+  addMode = false;
+  addLatLng = null;
+  document.getElementById('add-banner').style.display = 'none';
+  document.getElementById('map').style.cursor = '';
+}
+
+function openModal(lat, lng) {
+  document.getElementById('add-banner').style.display = 'none';
+  const modal = document.getElementById('add-modal');
+  modal.classList.add('active');
+  document.getElementById('modal-coords').textContent =
+    `Position : ${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E`;
+  document.getElementById('modal-nom').value = '';
+  document.getElementById('modal-status').textContent = '';
+  document.getElementById('modal-status').className = 'status';
+  document.getElementById('modal-ok').disabled = false;
+  setTimeout(() => document.getElementById('modal-nom').focus(), 100);
+}
+
+function closeModal() {
+  document.getElementById('add-modal').classList.remove('active');
+  cancelAddMode();
+}
+
+async function confirmAddPort() {
+  const nom = document.getElementById('modal-nom').value.trim();
+  if (!nom) {
+    document.getElementById('modal-status').textContent = 'Veuillez saisir un nom.';
+    document.getElementById('modal-status').className = 'status error';
+    return;
+  }
+
+  const statusEl = document.getElementById('modal-status');
+  const okBtn = document.getElementById('modal-ok');
+  statusEl.textContent = 'Création en cours… (extraction des harmoniques)';
+  statusEl.className = 'status';
+  okBtn.disabled = true;
+
+  try {
+    const resp = await fetch('/api/create_har', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nom: nom,
+        lat: addLatLng.lat,
+        lon: addLatLng.lng,
+      }),
+    });
+
+    const result = await resp.json();
+    if (!resp.ok) {
+      throw new Error(result.error || 'Erreur serveur');
+    }
+
+    statusEl.textContent = `Port créé : ${result.filename}`;
+
+    // Ajouter au tableau
+    const newEntry = {
+      filename: result.filename,
+      buggy: false,
+      nom: result.nom,
+      lat: result.lat,
+      lon: result.lon,
+      z0: result.z0,
+    };
+    HAR_FILES.push(newEntry);
+
+    // Ajouter le marqueur bleu
+    const blueIcon = makeIcon('#2563eb');
+    const idx = HAR_FILES.length - 1;
+    const marker = L.marker([newEntry.lat, newEntry.lon], { icon: blueIcon }).addTo(map);
+    marker.on('click', () => {
+      if (addMode) return;
+      selectPort(idx);
+    });
+    allMarkers.push(marker);
+
+    // Mettre à jour la légende
+    updateLegend();
+
+    // Fermer la modal après un court délai
+    setTimeout(() => {
+      closeModal();
+      // Sélectionner automatiquement le nouveau port
+      selectPort(idx);
+    }, 800);
+
+  } catch (e) {
+    statusEl.textContent = 'Erreur : ' + e.message;
+    statusEl.className = 'status error';
+    okBtn.disabled = false;
+  }
+}
+
+// Touche Entrée dans le champ nom
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && document.getElementById('add-modal').classList.contains('active')) {
+    confirmAddPort();
+  }
+  if (e.key === 'Escape') {
+    if (document.getElementById('add-modal').classList.contains('active')) {
+      closeModal();
+    } else if (addMode) {
+      cancelAddMode();
+    }
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  SÉLECTION D'UN PORT
 // ═══════════════════════════════════════════════════════════════
 
 async function selectPort(idx) {
@@ -756,8 +927,10 @@ async function selectPort(idx) {
   panel.style.display = 'flex';
   setTimeout(() => map.invalidateSize(), 50);
 
+  const isNew = meta.filename.startsWith('-');
   const buggyTag = meta.buggy ? '<span class="buggy-tag"> ⚠ BUGGY</span>' : '';
-  document.getElementById('port-title').innerHTML = meta.nom + buggyTag;
+  const newTag = isNew ? '<span class="new-tag"> ● NOUVEAU</span>' : '';
+  document.getElementById('port-title').innerHTML = meta.nom + buggyTag + newTag;
   document.getElementById('port-info').innerHTML = 'Chargement…';
   document.getElementById('extremes').innerHTML = '';
   if (activeChart) { activeChart.destroy(); activeChart = null; }
@@ -836,13 +1009,11 @@ function renderChart(port, dayOffset) {
     }).join('');
   }
 
-  const iso = dateISO(dayOffset);
-  const data   = times.map((t, i) => ({ x: t, y: heights[i] }));
+  const data = times.map((t, i) => ({ x: t, y: heights[i] }));
 
-  const mainColor = port.buggy ? '#c0392b' : '#2980b9';
-  const bgColor   = port.buggy ? 'rgba(192,57,43,0.08)' : 'rgba(41,128,185,0.08)';
+  const mainColor = port.buggy ? '#c0392b' : port.isNew ? '#2563eb' : '#2980b9';
+  const bgColor = port.buggy ? 'rgba(192,57,43,0.08)' : port.isNew ? 'rgba(37,99,235,0.08)' : 'rgba(41,128,185,0.08)';
 
-  // Current water level (only for today, dayOffset === 0)
   let waterData = [];
   let nowPoint = [];
   if (dayOffset === 0) {
@@ -1004,75 +1175,54 @@ init();
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Génération HTML
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def generate_html(
-    har_files: list[dict],
-    har_dir: str,
-    utide_json: str,
-    shom_json: str,
-    extra_json: str,
-    output_path: str,
-):
-    """Génère le fichier HTML autonome."""
-    har_files_json = json.dumps(har_files, ensure_ascii=False, separators=(",", ":"))
-
-    html = (
-        HTML_TEMPLATE.replace("__UTIDE_JSON__", utide_json)
-        .replace("__SHOM_JSON__", shom_json)
-        .replace("__EXTRA_JSON__", extra_json)
-        .replace("__HAR_DIR__", har_dir)
-        .replace("__HAR_FILES_JSON__", har_files_json)
-    )
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(html)
-
-    size_kb = len(html.encode("utf-8")) / 1024
-    print(f"  Carte générée : {output_path} ({size_kb:.0f} Ko)")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Carte interactive des marées (calcul 100%% JavaScript)"
-    )
+    parser = argparse.ArgumentParser(description="Éditeur interactif de ports de marée")
     parser.add_argument(
         "--har-dir", default="har_ports", help="Répertoire des fichiers .har"
     )
     parser.add_argument(
-        "--output", default="carte_marees.html", help="Fichier HTML de sortie"
+        "--atlas-base",
+        default="MARC_L1-ATLAS-AHRMONIQUES",
+        help="Répertoire parent des atlas",
+    )
+    parser.add_argument(
+        "--port", type=int, default=8000, help="Port HTTP (défaut: 8000)"
     )
     args = parser.parse_args()
 
-    print(f"Scan des fichiers .har dans {args.har_dir}/ ...")
-    har_files = scan_har_files(args.har_dir)
-    print(f"  → {len(har_files)} fichiers trouvés")
+    # Configurer le handler
+    EditorHandler.har_dir = args.har_dir
+    EditorHandler.atlas_base = args.atlas_base
 
-    print("Export des constantes utide ...")
-    utide_json = export_utide_json()
-    print(f"  → {len(utide_json) / 1024:.1f} Ko de données harmoniques")
+    # Vérifications
+    har_path = Path(args.har_dir)
+    if not har_path.exists():
+        print(f"Erreur : répertoire {args.har_dir} introuvable")
+        sys.exit(1)
 
-    print("Export des mappings SHOM/extra ...")
-    shom_json, extra_json = export_mappings_json()
+    atlas_path = Path(args.atlas_base)
+    if not atlas_path.exists():
+        print(f"Attention : répertoire atlas {args.atlas_base} introuvable")
+        print(f"  La création de nouveaux ports ne fonctionnera pas.")
 
-    print("Génération de la carte ...")
-    generate_html(
-        har_files, args.har_dir, utide_json, shom_json, extra_json, args.output
-    )
+    n_har = len(list(har_path.glob("*.har")))
+    print(f"Éditeur de marées")
+    print(f"  Répertoire HAR : {args.har_dir}/ ({n_har} fichiers)")
+    print(f"  Atlas SHOM     : {args.atlas_base}/")
+    print(f"  Serveur HTTP   : http://localhost:{args.port}/")
+    print(f"\n  Ouvrir dans le navigateur et cliquer « + Ajouter un port »")
+    print(f"  Ctrl+C pour arrêter\n")
 
-    n_ok = len([f for f in har_files if not f["buggy"]])
-    n_bug = len([f for f in har_files if f["buggy"]])
-    print(f"  → {len(har_files)} ports ({n_ok} OK + {n_bug} buggy)")
-    print(f"\nLe HTML est autonome : ouvrir avec un serveur HTTP local :")
-    print(f"  python -m http.server 8000")
-    print(f"  → http://localhost:8000/{args.output}")
+    server = HTTPServer(("", args.port), EditorHandler)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nArrêt du serveur.")
+        server.server_close()
 
 
 if __name__ == "__main__":
