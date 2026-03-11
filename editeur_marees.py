@@ -1147,8 +1147,8 @@ function renderChart(port, dayOffset) {
             maxRotation: 0,
             stepSize: 120,
             callback: function(v) {
-              if (v === 1440) return '24h00';
-              return minutesToHHMM(v);
+              const h = Math.round(v / 60);
+              return String(h) + 'h';
             },
           },
           grid: { color: 'rgba(0,0,0,0.06)' },
