@@ -6,6 +6,7 @@ Serveur HTTP qui :
   1. Génère et sert la page éditeur (même présentation que carte_marees.html)
   2. Sert les fichiers .har statiques
   3. Expose une API POST /api/create_har pour générer un nouveau fichier .har
+  4. Expose une API POST /api/delete_har pour supprimer un fichier .har
 
 Les ports dont le fichier est préfixé « - » sont affichés en bleu (nouveaux).
 
@@ -130,6 +131,10 @@ class EditorHandler(SimpleHTTPRequestHandler):
             self._handle_create_har()
             return
 
+        if parsed.path == "/api/delete_har":
+            self._handle_delete_har()
+            return
+
         self._send_error(404, "Endpoint inconnu")
 
     def _handle_create_har(self):
@@ -189,6 +194,38 @@ class EditorHandler(SimpleHTTPRequestHandler):
             traceback.print_exc()
             self._send_json(500, {"error": str(e)})
 
+    def _handle_delete_har(self):
+        """Supprime un fichier .har existant."""
+        try:
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len)
+            data = json.loads(body.decode("utf-8"))
+
+            filename = str(data.get("filename", "")).strip()
+            if not filename:
+                self._send_json(400, {"error": "Nom de fichier requis"})
+                return
+            if filename != Path(filename).name or not filename.endswith(".har"):
+                self._send_json(400, {"error": "Nom de fichier invalide"})
+                return
+
+            har_dir_path = Path(self.har_dir).resolve()
+            filepath = (har_dir_path / filename).resolve()
+            if filepath.parent != har_dir_path:
+                self._send_json(400, {"error": "Chemin de fichier invalide"})
+                return
+            if not filepath.exists():
+                self._send_json(404, {"error": f"Fichier introuvable: {filename}"})
+                return
+
+            filepath.unlink()
+            print(f"[API] Fichier supprimé : {filepath}")
+            self._send_json(200, {"ok": True, "filename": filename})
+
+        except Exception as e:
+            traceback.print_exc()
+            self._send_json(500, {"error": str(e)})
+
     def _send_json(self, code, obj):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -239,6 +276,20 @@ EDITOR_HTML_TEMPLATE = r"""<!DOCTYPE html>
   #tide-panel .info a:hover { text-decoration: underline; }
   .buggy-tag { color: #c00; font-weight: bold; }
   .new-tag { color: #2563eb; font-weight: bold; }
+
+  .danger-btn {
+    margin: 6px 0 4px;
+    border: 1px solid #e74c3c;
+    background: #fff5f5;
+    color: #c0392b;
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    width: fit-content;
+  }
+  .danger-btn:hover { background: #ffe9e9; }
 
   #close-panel {
     position: absolute; top: 6px; right: 10px;
@@ -345,6 +396,7 @@ EDITOR_HTML_TEMPLATE = r"""<!DOCTYPE html>
   <button id="close-panel" onclick="closePanel()">✕</button>
   <h3 id="port-title"></h3>
   <div class="info" id="port-info"></div>
+  <button id="delete-port-btn" class="danger-btn" onclick="deleteActivePort()">Supprimer ce port</button>
   <div class="nav-bar">
     <button onclick="navigateDay(-1)">◀</button>
     <span class="date-label" id="date-lbl"></span>
@@ -753,25 +805,12 @@ function makeIcon(color) {
 // ═══════════════════════════════════════════════════════════════
 
 function initMap() {
-  const greenIcon = makeIcon('#2d8a4e');
-  const redIcon   = makeIcon('#c0392b');
-  const blueIcon  = makeIcon('#2563eb');
-
   map = L.map('map').setView([47.5, -2.5], 6);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap', maxZoom: 18,
   }).addTo(map);
 
-  HAR_FILES.forEach((hf, idx) => {
-    const icon = hf.filename.startsWith('-') ? blueIcon
-               : hf.buggy ? redIcon : greenIcon;
-    const marker = L.marker([hf.lat, hf.lon], { icon }).addTo(map);
-    marker.on('click', () => {
-      if (addMode) return;
-      selectPort(idx);
-    });
-    allMarkers.push(marker);
-  });
+  rebuildMarkers();
 
   // Clic sur la carte en mode ajout
   map.on('click', (e) => {
@@ -805,6 +844,26 @@ function initMap() {
       { padding: [30, 30] }
     );
   }
+}
+
+function rebuildMarkers() {
+  allMarkers.forEach(m => map.removeLayer(m));
+  allMarkers = [];
+
+  const greenIcon = makeIcon('#2d8a4e');
+  const redIcon   = makeIcon('#c0392b');
+  const blueIcon  = makeIcon('#2563eb');
+
+  HAR_FILES.forEach((hf, idx) => {
+    const icon = hf.filename.startsWith('-') ? blueIcon
+               : hf.buggy ? redIcon : greenIcon;
+    const marker = L.marker([hf.lat, hf.lon], { icon }).addTo(map);
+    marker.on('click', () => {
+      if (addMode) return;
+      selectPort(idx);
+    });
+    allMarkers.push(marker);
+  });
 }
 
 function updateLegend(div) {
@@ -899,16 +958,8 @@ async function confirmAddPort() {
       z0: result.z0,
     };
     HAR_FILES.push(newEntry);
-
-    // Ajouter le marqueur bleu
-    const blueIcon = makeIcon('#2563eb');
     const idx = HAR_FILES.length - 1;
-    const marker = L.marker([newEntry.lat, newEntry.lon], { icon: blueIcon }).addTo(map);
-    marker.on('click', () => {
-      if (addMode) return;
-      selectPort(idx);
-    });
-    allMarkers.push(marker);
+    rebuildMarkers();
 
     // Mettre à jour la légende
     updateLegend();
@@ -979,15 +1030,44 @@ async function selectPort(idx) {
   updateTidePanel();
 }
 
+async function deleteActivePort() {
+  if (!activePort) return;
+  const filename = activePort.filename;
+  const portName = activePort.nom || filename;
+  const ok = confirm(`Supprimer le port "${portName}" et le fichier ${filename} ?`);
+  if (!ok) return;
+
+  try {
+    const resp = await fetch('/api/delete_har', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename }),
+    });
+    const result = await resp.json();
+    if (!resp.ok) {
+      throw new Error(result.error || 'Erreur serveur');
+    }
+
+    delete PORT_CACHE[filename];
+    const idx = HAR_FILES.findIndex(p => p.filename === filename);
+    if (idx !== -1) HAR_FILES.splice(idx, 1);
+
+    closePanel();
+    rebuildMarkers();
+    updateLegend();
+  } catch (e) {
+    alert('Suppression impossible : ' + e.message);
+  }
+}
+
 function updateTidePanel() {
   if (!activePort) return;
   const gpsStr = activePort.lat.toFixed(6) + ', ' + activePort.lon.toFixed(6);
   const gmapUrl = 'https://www.google.com/maps?q=' + activePort.lat.toFixed(6) + ',' + activePort.lon.toFixed(6);
+  const harHref = HAR_DIR + '/' + encodeURIComponent(activePort.filename);
   document.getElementById('port-info').innerHTML =
     `<a href="${gmapUrl}" target="_blank" title="Voir sur Google Maps">${gpsStr}</a>` +
-    ` &nbsp;|&nbsp; Z0 = ${activePort.z0.toFixed(2)} m` +
-    ` &nbsp;|&nbsp; ${activePort.c.length} harmoniques` +
-    `<br><span style="font-size:11px;color:#999">${activePort.filename}</span>`;
+    ` &nbsp;|&nbsp; <a href="${harHref}" download="${activePort.filename}" title="Télécharger le fichier HAR">${activePort.filename}</a>`;
   document.getElementById('date-lbl').textContent = dateLabel(activeDayOffset);
   renderChart(activePort, activeDayOffset);
 }
