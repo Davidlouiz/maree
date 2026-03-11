@@ -128,8 +128,41 @@ def export_mappings_json() -> tuple[str, str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def extract_har_metadata(filepath: Path) -> dict | None:
+    """Extrait nom, lat, lon, z0 depuis un fichier .har (section [port] uniquement)."""
+    nom = filepath.stem
+    lat = lon = z0 = None
+    section = None
+    with open(filepath, "r", encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                section = line[1:-1].lower()
+                if section != "port":
+                    if lat is not None and lon is not None:
+                        break  # on a déjà tout
+                continue
+            if section == "port" and "=" in line:
+                k, v = line.split("=", 1)
+                k = k.strip().lower()
+                v = v.strip()
+                if k == "nom":
+                    nom = v
+                elif k == "latitude":
+                    lat = float(v)
+                elif k == "longitude":
+                    lon = float(v)
+                elif k == "z0":
+                    z0 = float(v)
+    if lat is None or lon is None:
+        return None
+    return {"nom": nom, "lat": round(lat, 6), "lon": round(lon, 6), "z0": round(z0 or 0, 4)}
+
+
 def scan_har_files(har_dir: str) -> list[dict]:
-    """Scanne le répertoire HAR et retourne la liste des fichiers."""
+    """Scanne le répertoire HAR et retourne la liste des fichiers avec métadonnées."""
     har_path = Path(har_dir)
     if not har_path.exists():
         print(f"Répertoire {har_dir} introuvable")
@@ -140,10 +173,18 @@ def scan_har_files(har_dir: str) -> list[dict]:
     for f in sorted(har_path.glob("*.har")):
         if f.name not in seen:
             seen.add(f.name)
+            meta = extract_har_metadata(f)
+            if meta is None:
+                print(f"  ⚠ {f.name} : coordonnées manquantes, ignoré")
+                continue
             files.append(
                 {
                     "filename": f.name,
                     "buggy": f.name.startswith("_"),
+                    "nom": meta["nom"],
+                    "lat": meta["lat"],
+                    "lon": meta["lon"],
+                    "z0": meta["z0"],
                 }
             )
     return files
@@ -165,36 +206,52 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  #map { width: 100vw; height: 100vh; }
+  html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; overflow: hidden; }
+  body { display: flex; flex-direction: row; }
 
-  .popup-content { width: 620px; max-width: 92vw; }
-  .popup-content h3 { margin: 0 0 2px 0; font-size: 17px; color: #333; }
-  .popup-content .info { font-size: 12px; color: #666; margin-bottom: 2px; }
-  .popup-content .buggy-tag { color: #c00; font-weight: bold; }
-  .popup-content .chart-wrap { position: relative; width: 600px; max-width: 90vw; height: 280px; }
-  .popup-content canvas { display: block; }
-  .leaflet-popup-content { margin: 10px 12px; min-width: 620px; }
+  #tide-panel {
+    display: none; background: #fff; border-right: 2px solid #ccc;
+    padding: 10px 14px; position: relative; flex-shrink: 0;
+    width: 33.33vw; overflow-y: auto;
+    flex-direction: column;
+  }
+  #tide-panel h3 { margin: 0 0 4px; font-size: 17px; color: #333; }
+  #tide-panel .info { font-size: 12px; color: #666; margin-bottom: 4px; line-height: 1.5; }
+  #tide-panel .info a { color: #2d8a4e; text-decoration: none; }
+  #tide-panel .info a:hover { text-decoration: underline; }
+  .buggy-tag { color: #c00; font-weight: bold; }
+
+  #close-panel {
+    position: absolute; top: 6px; right: 10px;
+    background: none; border: none; font-size: 22px; cursor: pointer;
+    color: #888; line-height: 1;
+  }
+  #close-panel:hover { color: #333; }
 
   .nav-bar {
     display: flex; align-items: center; justify-content: center;
-    gap: 10px; margin: 4px 0 2px 0;
+    gap: 8px; margin: 4px 0 6px 0;
   }
   .nav-bar button {
     border: none; background: #eee; border-radius: 4px;
-    padding: 3px 14px; font-size: 18px; cursor: pointer; line-height: 1;
+    padding: 3px 12px; font-size: 18px; cursor: pointer; line-height: 1;
   }
   .nav-bar button:hover { background: #ddd; }
   .nav-bar .date-label {
-    font-size: 14px; font-weight: 600; min-width: 270px; text-align: center;
+    font-size: 13px; font-weight: 600; min-width: 200px; text-align: center;
   }
 
   .extremes-list {
-    display: flex; flex-wrap: wrap; gap: 4px 14px;
-    font-size: 12px; margin-bottom: 4px; color: #444;
+    display: flex; flex-direction: column; gap: 2px;
+    font-size: 12px; margin-bottom: 6px; color: #444;
   }
   .extremes-list .pm { color: #d35400; font-weight: 600; }
   .extremes-list .bm { color: #2980b9; font-weight: 600; }
+
+  .chart-wrap { position: relative; width: 100%; }
+  .chart-wrap canvas { display: block; }
+
+  #map { flex: 1; min-height: 0; }
 
   .legend {
     background: white; padding: 8px 12px; border-radius: 6px;
@@ -206,26 +263,20 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
   .legend .green { background: #2d8a4e; }
   .legend .red { background: #c0392b; }
-
-  .loading-overlay {
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(255,255,255,0.85); z-index: 10000;
-    display: flex; align-items: center; justify-content: center;
-    flex-direction: column; font-family: inherit;
-  }
-  .loading-overlay .spinner {
-    width: 40px; height: 40px; border: 4px solid #ddd;
-    border-top-color: #2d8a4e; border-radius: 50%;
-    animation: spin 0.8s linear infinite; margin-bottom: 12px;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .loading-overlay .msg { font-size: 15px; color: #555; }
 </style>
 </head>
 <body>
-<div id="loading" class="loading-overlay">
-  <div class="spinner"></div>
-  <div class="msg" id="loading-msg">Chargement des fichiers harmoniques…</div>
+<div id="tide-panel">
+  <button id="close-panel" onclick="closePanel()">✕</button>
+  <h3 id="port-title"></h3>
+  <div class="info" id="port-info"></div>
+  <div class="nav-bar">
+    <button onclick="navigateDay(-1)">◀</button>
+    <span class="date-label" id="date-lbl"></span>
+    <button onclick="navigateDay(1)">▶</button>
+  </div>
+  <div class="extremes-list" id="extremes"></div>
+  <div class="chart-wrap"><canvas id="tide-chart"></canvas></div>
 </div>
 <div id="map"></div>
 <script>
@@ -594,67 +645,29 @@ function findExtremes(times, heights) {
 }
 
 function pad2(n) { return String(n).padStart(2, '0'); }
-function minutesToHHMM(m) { return pad2(Math.floor(m/60)) + 'h' + pad2(m%60); }
-
-// ═══════════════════════════════════════════════════════════════
-//  CHARGEMENT PRINCIPAL
-// ═══════════════════════════════════════════════════════════════
-
-const PORTS = [];
-let T0, T0_ORD;
-
-async function init() {
-  const loadMsg = document.getElementById('loading-msg');
-
-  // t0 = aujourd'hui 0h UTC
-  const now = new Date();
-  T0 = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  T0_ORD = datetimeToOrdinal(T0);
-
-  // Chargement des fichiers HAR en parallèle
-  loadMsg.textContent = `Chargement de ${HAR_FILES.length} fichiers .har…`;
-  await new Promise(r => setTimeout(r, 10));
-
-  const results = await Promise.allSettled(
-    HAR_FILES.map(hf =>
-      fetch(HAR_DIR + '/' + hf.filename)
-        .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
-        .then(text => ({ text, hf }))
-    )
-  );
-
-  loadMsg.textContent = 'Calcul des corrections astronomiques…';
-  await new Promise(r => setTimeout(r, 10));
-
-  let loaded = 0;
-  for (const result of results) {
-    if (result.status !== 'fulfilled') continue;
-    const { text, hf } = result.value;
-    const har = parseHAR(text, hf.filename);
-    if (!har) continue;
-
-    // FUV à la latitude exacte du port
-    const portFUV = computeAllFUV(T0_ORD, har.lat);
-    const port = preparePort(har, portFUV, T0_ORD);
-    PORTS.push(port);
-    loaded++;
-  }
-
-  loadMsg.textContent = `${loaded} ports chargés. Initialisation de la carte…`;
-  await new Promise(r => setTimeout(r, 10));
-
-  initMap();
-  document.getElementById('loading').style.display = 'none';
+function minutesToHHMM(m) {
+  const local = (m + TZ_OFFSET_MIN + 1440) % 1440;
+  return pad2(Math.floor(local/60)) + 'h' + pad2(local%60);
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  CARTE LEAFLET
+//  CHARGEMENT & LAZY-LOADING
 // ═══════════════════════════════════════════════════════════════
 
-let map;
-let activeChart = null;
-let activePortIdx = null;
+const PORT_CACHE = {};   // filename → prepared port object
+let activePort = null;
 let activeDayOffset = 0;
+let activeChart = null;
+let map;
+let T0, T0_ORD;
+const TZ_OFFSET_MIN = -(new Date().getTimezoneOffset());  // ex: +60 pour CET
+
+function init() {
+  const now = new Date();
+  T0 = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  T0_ORD = datetimeToOrdinal(T0);
+  initMap();
+}
 
 function dateForOffset(off) {
   return new Date(T0.getTime() + off * 86400000);
@@ -676,9 +689,13 @@ function makeIcon(color) {
             fill="${color}" stroke="#fff" stroke-width="1.5"/>
       <circle cx="10" cy="10" r="4" fill="#fff"/>
     </svg>`,
-    iconSize: [20, 28], iconAnchor: [10, 28], popupAnchor: [0, -28],
+    iconSize: [20, 28], iconAnchor: [10, 28],
   });
 }
+
+// ═══════════════════════════════════════════════════════════════
+//  CARTE LEAFLET
+// ═══════════════════════════════════════════════════════════════
 
 function initMap() {
   const greenIcon = makeIcon('#2d8a4e');
@@ -689,52 +706,20 @@ function initMap() {
     attribution: '&copy; OpenStreetMap', maxZoom: 18,
   }).addTo(map);
 
-  PORTS.forEach((port, idx) => {
-    const icon = port.buggy ? redIcon : greenIcon;
-    const marker = L.marker([port.lat, port.lon], { icon }).addTo(map);
-    marker.bindPopup('', { maxWidth: 660, minWidth: 620 });
-
-    marker.on('popupopen', function() {
-      const buggyTag = port.buggy
-        ? '<span class="buggy-tag"> ⚠ BUGGY</span>' : '';
-      const content = `
-        <div class="popup-content">
-          <h3>${port.nom}${buggyTag}</h3>
-          <div class="info">
-            ${port.lat.toFixed(3)}°N, ${port.lon.toFixed(3)}°
-            &nbsp;|&nbsp; Z0 = ${port.z0.toFixed(2)} m
-            &nbsp;|&nbsp; ${port.c.length} harmoniques
-            &nbsp;|&nbsp; <span style="font-size:11px;color:#999">${port.filename}</span>
-          </div>
-          <div class="nav-bar">
-            <button onclick="renderChart(${idx}, activeDayOffset - 1)">◀</button>
-            <span class="date-label" id="date-lbl-${idx}">${dateLabel(0)}</span>
-            <button onclick="renderChart(${idx}, activeDayOffset + 1)">▶</button>
-          </div>
-          <div class="extremes-list" id="extremes-${idx}"></div>
-          <div class="chart-wrap"><canvas id="chart-${idx}"></canvas></div>
-        </div>
-      `;
-      marker.getPopup().setContent(content);
-      activePortIdx = idx;
-      activeDayOffset = 0;
-      setTimeout(() => renderChart(idx, 0), 50);
-    });
-
-    marker.on('popupclose', function() {
-      if (activeChart) { activeChart.destroy(); activeChart = null; }
-      activePortIdx = null;
-    });
+  HAR_FILES.forEach((hf, idx) => {
+    const icon = hf.buggy ? redIcon : greenIcon;
+    const marker = L.marker([hf.lat, hf.lon], { icon }).addTo(map);
+    marker.on('click', () => selectPort(idx));
   });
 
   // Légende
   const legend = L.control({ position: 'bottomright' });
   legend.onAdd = function() {
     const div = L.DomUtil.create('div', 'legend');
-    const nOK  = PORTS.filter(p => !p.buggy).length;
-    const nBug = PORTS.filter(p => p.buggy).length;
+    const nOK  = HAR_FILES.filter(p => !p.buggy).length;
+    const nBug = HAR_FILES.filter(p => p.buggy).length;
     div.innerHTML = `
-      <b>Ports de marée</b><br>
+      <b>Ports de marée (${HAR_FILES.length})</b><br>
       <i class="green"></i> OK (${nOK})<br>
       ${nBug > 0 ? '<i class="red"></i> Buggy (' + nBug + ')<br>' : ''}
       <span style="font-size:11px;color:#888">Clic = courbe &nbsp;◀ ▶ = jour</span>
@@ -743,35 +728,93 @@ function initMap() {
   };
   legend.addTo(map);
 
-  if (PORTS.length > 0) {
+  if (HAR_FILES.length > 0) {
     map.fitBounds(
-      L.latLngBounds(PORTS.map(p => [p.lat, p.lon])),
+      L.latLngBounds(HAR_FILES.map(p => [p.lat, p.lon])),
       { padding: [30, 30] }
     );
   }
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  SÉLECTION D'UN PORT (chargement à la demande)
+// ═══════════════════════════════════════════════════════════════
+
+async function selectPort(idx) {
+  const meta = HAR_FILES[idx];
+  const panel = document.getElementById('tide-panel');
+  panel.style.display = 'flex';
+  setTimeout(() => map.invalidateSize(), 50);
+
+  const buggyTag = meta.buggy ? '<span class="buggy-tag"> ⚠ BUGGY</span>' : '';
+  document.getElementById('port-title').innerHTML = meta.nom + buggyTag;
+  document.getElementById('port-info').innerHTML = 'Chargement…';
+  document.getElementById('extremes').innerHTML = '';
+  if (activeChart) { activeChart.destroy(); activeChart = null; }
+
+  if (!PORT_CACHE[meta.filename]) {
+    try {
+      const resp = await fetch(HAR_DIR + '/' + meta.filename);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const text = await resp.text();
+      const har = parseHAR(text, meta.filename);
+      if (!har) throw new Error('Erreur de parsing');
+      const portFUV = computeAllFUV(T0_ORD, har.lat);
+      PORT_CACHE[meta.filename] = preparePort(har, portFUV, T0_ORD);
+    } catch (e) {
+      document.getElementById('port-info').innerHTML = 'Erreur : ' + e.message;
+      return;
+    }
+  }
+
+  activePort = PORT_CACHE[meta.filename];
+  activeDayOffset = 0;
+  updateTidePanel();
+}
+
+function updateTidePanel() {
+  if (!activePort) return;
+  const gpsStr = activePort.lat.toFixed(6) + ', ' + activePort.lon.toFixed(6);
+  const gmapUrl = 'https://www.google.com/maps?q=' + activePort.lat.toFixed(6) + ',' + activePort.lon.toFixed(6);
+  document.getElementById('port-info').innerHTML =
+    `<a href="${gmapUrl}" target="_blank" title="Voir sur Google Maps">${gpsStr}</a>` +
+    ` &nbsp;|&nbsp; Z0 = ${activePort.z0.toFixed(2)} m` +
+    ` &nbsp;|&nbsp; ${activePort.c.length} harmoniques` +
+    `<br><span style="font-size:11px;color:#999">${activePort.filename}</span>`;
+  document.getElementById('date-lbl').textContent = dateLabel(activeDayOffset);
+  renderChart(activePort, activeDayOffset);
+}
+
+function navigateDay(delta) {
+  activeDayOffset += delta;
+  updateTidePanel();
+}
+
+function closePanel() {
+  document.getElementById('tide-panel').style.display = 'none';
+  if (activeChart) { activeChart.destroy(); activeChart = null; }
+  activePort = null;
+  setTimeout(() => map.invalidateSize(), 50);
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  RENDU DU GRAPHIQUE (Chart.js)
 // ═══════════════════════════════════════════════════════════════
 
-function renderChart(idx, dayOffset) {
-  const port = PORTS[idx];
-  const canvasId = 'chart-' + idx;
-  const ctx = document.getElementById(canvasId);
+function renderChart(port, dayOffset) {
+  const ctx = document.getElementById('tide-chart');
   if (!ctx) return;
   if (activeChart) { activeChart.destroy(); activeChart = null; }
 
-  activeDayOffset = dayOffset;
-  activePortIdx = idx;
-
-  const dateEl = document.getElementById('date-lbl-' + idx);
-  if (dateEl) dateEl.textContent = dateLabel(dayOffset);
-
   const { times, heights } = predict(port, dayOffset);
+  const hMin = Math.min(...heights);
+  const hMax = Math.max(...heights);
+  const hMargin = (hMax - hMin) * 0.1 || 0.5;
+  const yMin = Math.floor((hMin - hMargin) * 10) / 10;
+  const yMax = Math.ceil((hMax + hMargin) * 10) / 10;
   const { pm, bm } = findExtremes(times, heights);
 
-  const extEl = document.getElementById('extremes-' + idx);
+  const extEl = document.getElementById('extremes');
   if (extEl) {
     const all = [
       ...pm.map(e => ({ ...e, type: 'PM' })),
@@ -779,21 +822,44 @@ function renderChart(idx, dayOffset) {
     ].sort((a, b) => a.t - b.t);
     extEl.innerHTML = all.map(e => {
       const cls = e.type === 'PM' ? 'pm' : 'bm';
-      const arrow = e.type === 'PM' ? '▲' : '▼';
-      return `<span class="${cls}">${arrow} ${e.type} ${minutesToHHMM(e.t)} — ${e.h.toFixed(2)} m</span>`;
+      return `<span class="${cls}">${e.type} ${minutesToHHMM(e.t)} — ${e.h.toFixed(2)} m</span>`;
     }).join('');
   }
 
   const iso = dateISO(dayOffset);
   function minToDate(m) {
-    return new Date(iso + 'T' + pad2(Math.floor(m/60)) + ':' + pad2(m%60) + ':00Z');
+    // Shift UTC minutes to local display by adding TZ offset
+    const localM = m + TZ_OFFSET_MIN;
+    const h = Math.floor(localM / 60);
+    const mm = ((localM % 60) + 60) % 60;
+    return new Date(Date.UTC(0, 0, 1, h, mm));
   }
   const data   = times.map((t, i) => ({ x: minToDate(t), y: heights[i] }));
-  const pmData = pm.map(e => ({ x: minToDate(e.t), y: e.h }));
-  const bmData = bm.map(e => ({ x: minToDate(e.t), y: e.h }));
 
-  const mainColor = port.buggy ? '#c0392b' : '#2d8a4e';
-  const bgColor   = port.buggy ? 'rgba(192,57,43,0.08)' : 'rgba(45,138,78,0.08)';
+  const mainColor = port.buggy ? '#c0392b' : '#2980b9';
+  const bgColor   = port.buggy ? 'rgba(192,57,43,0.08)' : 'rgba(41,128,185,0.08)';
+
+  // Current water level (only for today, dayOffset === 0)
+  let waterData = [];
+  let nowPoint = [];
+  if (dayOffset === 0) {
+    const now = new Date();
+    const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const nowLocalMin = nowMin + TZ_OFFSET_MIN;
+    const DEG2RAD = Math.PI / 180;
+    const nc = port.c.length;
+    const dt = nowMin / 60;  // hours from T0
+    let hNow = port.z0;
+    for (let j = 0; j < nc; j++) {
+      const c = port.c[j];
+      hNow += c.a * Math.cos((c.w * dt + c.p) * DEG2RAD);
+    }
+    hNow = Math.round(hNow * 1000) / 1000;
+    // Filled area from bottom to current water level
+    waterData = [{ x: data[0].x, y: hNow }, { x: data[data.length-1].x, y: hNow }];
+    // Point at current time / current height
+    nowPoint = [{ x: minToDate(nowMin), y: hNow }];
+  }
 
   const crosshairPlugin = {
     id: 'crosshair',
@@ -825,7 +891,7 @@ function renderChart(idx, dayOffset) {
           data: data,
           borderColor: mainColor,
           backgroundColor: bgColor,
-          fill: true,
+          fill: false,
           pointRadius: 0,
           pointHitRadius: 8,
           borderWidth: 2.5,
@@ -841,32 +907,33 @@ function renderChart(idx, dayOffset) {
           pointHitRadius: 0,
           fill: false,
         },
-        {
-          label: 'PM',
-          data: pmData,
-          borderColor: '#d35400',
-          backgroundColor: '#d35400',
+        ...(waterData.length ? [{
+          label: 'Niveau actuel',
+          data: waterData,
+          borderColor: 'transparent',
+          borderWidth: 0,
+          pointRadius: 0,
+          pointHitRadius: 0,
+          backgroundColor: 'rgba(52,152,219,0.25)',
+          fill: 'start',
+        }] : []),
+        ...(nowPoint.length ? [{
+          label: 'Maintenant',
+          data: nowPoint,
+          borderColor: '#e74c3c',
+          backgroundColor: '#e74c3c',
           pointRadius: 7,
-          pointStyle: 'triangle',
+          pointStyle: 'circle',
           showLine: false,
-          pointHitRadius: 10,
-        },
-        {
-          label: 'BM',
-          data: bmData,
-          borderColor: '#2980b9',
-          backgroundColor: '#2980b9',
-          pointRadius: 7,
-          pointStyle: 'triangle',
-          pointRotation: 180,
-          showLine: false,
-          pointHitRadius: 10,
-        },
+          pointHitRadius: 12,
+          order: -1,
+        }] : []),
       ],
     },
     options: {
       responsive: true,
-      maintainAspectRatio: false,
+      maintainAspectRatio: true,
+      aspectRatio: 3 / 2,
       animation: false,
       interaction: { mode: 'nearest', axis: 'x', intersect: false },
       plugins: {
@@ -876,19 +943,19 @@ function renderChart(idx, dayOffset) {
             usePointStyle: true,
             font: { size: 11 },
             padding: 12,
-            filter: item => item.text !== 'Zéro',
+            filter: item => item.text !== 'Zéro' && item.text !== 'Maintenant' && item.text !== 'Niveau actuel',
           },
         },
         tooltip: {
           mode: 'nearest',
           axis: 'x',
           intersect: false,
-          filter: item => item.dataset.label !== 'Zéro',
+          filter: item => item.dataset.label !== 'Zéro' && item.dataset.label !== 'Maintenant' && item.dataset.label !== 'Niveau actuel',
           callbacks: {
             title: items => {
               if (!items.length) return '';
               const d = new Date(items[0].parsed.x);
-              return pad2(d.getUTCHours()) + 'h' + pad2(d.getUTCMinutes()) + ' UTC';
+              return pad2(d.getUTCHours()) + 'h' + pad2(d.getUTCMinutes());
             },
             label: ctx => {
               if (ctx.dataset.label === 'PM')
@@ -917,6 +984,8 @@ function renderChart(idx, dayOffset) {
           title: { display: true, text: 'Hauteur (m / ZC)', font: { size: 12 } },
           ticks: { font: { size: 11 } },
           grid: { color: 'rgba(0,0,0,0.06)' },
+          min: yMin,
+          max: yMax,
         },
       },
     },
@@ -926,10 +995,7 @@ function renderChart(idx, dayOffset) {
 // ═══════════════════════════════════════════════════════════════
 //  DÉMARRAGE
 // ═══════════════════════════════════════════════════════════════
-init().catch(err => {
-  console.error('Erreur init:', err);
-  document.getElementById('loading-msg').textContent = 'Erreur : ' + err.message;
-});
+init();
 </script>
 </body>
 </html>"""
